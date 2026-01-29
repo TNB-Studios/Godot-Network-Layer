@@ -1,0 +1,114 @@
+using System.Data.SqlTypes;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.X86;
+using System.Runtime.Serialization;
+using Godot;
+
+public class PlayerState
+{
+    public int LastAckedFrame { get; set; }
+    public Vector3 Position { get; set; }
+    public Vector3 Orientation { get; set; }
+    public Vector3 Velocity { get; set; }
+
+    public static readonly int MAX_PACKET_SIZE = 6144;
+    public byte[] CurrentPlayerPacket = new byte[MAX_PACKET_SIZE];
+
+    static readonly float[] FOV = {90.0f, 70.0f};
+
+    public PlayerState()
+    {
+        LastAckedFrame = -1;
+        Position = Vector3.Zero;
+        Orientation = Vector3.Zero;
+        Velocity = Vector3.Zero;
+    }
+
+    public bool DetermineSharedObjectCanBeSeenByPlayer(Vector objectPosition, float objectRadius, int soundIndex, float soundRadius)
+    {
+        bool shouldTransmit = true;
+        // first, if we have a sound, we may want to force the object being sent.
+        if (soundIndex != -1)
+        {
+            Vector deltaVector = objectPosition - Position;
+            float deltaLength = deltaVector.Length;
+            if (deltaLength < soundRadius)
+            {
+                shouldTransmit = true;
+            }
+        }
+        if (!shouldTransmit)
+        {
+            // Check if object is within player's FOV (90° horizontal, 70° vertical)
+            Vector3 toObject = objectPosition - Position;
+            float distanceToObject = toObject.Length();
+
+            if (distanceToObject > 0.001f)
+            {
+                Vector3 toObjectNormalized = toObject / distanceToObject;
+
+                // Calculate player's forward direction from orientation (Y is yaw, X is pitch)
+                Vector3 forward = new Vector3(
+                    Mathf.Sin(Orientation.Y) * Mathf.Cos(Orientation.X),
+                    -Mathf.Sin(Orientation.X),
+                    Mathf.Cos(Orientation.Y) * Mathf.Cos(Orientation.X)
+                ).Normalized();
+
+                float forwardDot = toObjectNormalized.Dot(forward);
+
+                // Early out if behind player
+                if (forwardDot <= 0)
+                {
+                    return shouldTransmit;
+                }
+
+                Vector3 right = new Vector3(
+                    Mathf.Cos(Orientation.Y),
+                    0,
+                    -Mathf.Sin(Orientation.Y)
+                ).Normalized();
+
+                float rightDot = toObjectNormalized.Dot(right);
+
+                // Half FOV in radians (45° horizontal, 35° vertical)
+                float halfHorizontalFOV = Mathf.DegToRad(FOV[0] * 0.5f);
+                float halfVerticalFOV = Mathf.DegToRad(FOV[1] * 0.5f);
+
+                if (objectRadius <= 1.0f)
+                {
+                    // Simple point-in-view test (cheaper)
+                    float horizontalAngle = Mathf.Abs(Mathf.Atan2(rightDot, forwardDot));
+                    float verticalAngle = Mathf.Abs(Mathf.Atan2(toObjectNormalized.Y, forwardDot));
+
+                    if (horizontalAngle <= halfHorizontalFOV && verticalAngle <= halfVerticalFOV)
+                    {
+                        shouldTransmit = true;
+                    }
+                }
+                else
+                {
+                    // Full sphere-in-view test
+                    Vector3 up = right.Cross(forward).Normalized();
+                    float upDot = toObjectNormalized.Dot(up);
+
+                    // Calculate angular radius of the object (how much FOV it subtends)
+                    float angularRadius = Mathf.Atan2(objectRadius, distanceToObject);
+
+                    // Calculate horizontal and vertical angles to object center
+                    float horizontalAngle = Mathf.Abs(Mathf.Atan2(rightDot, forwardDot));
+                    float verticalAngle = Mathf.Abs(Mathf.Atan2(upDot, forwardDot));
+
+                    // Object is visible if its edge (center - angular radius) is within FOV
+                    if (horizontalAngle - angularRadius <= halfHorizontalFOV &&
+                        verticalAngle - angularRadius <= halfVerticalFOV)
+                    {
+                        shouldTransmit = true;
+                    }
+                }
+            }
+        }
+        return shouldTransmit;
+    }
+}
