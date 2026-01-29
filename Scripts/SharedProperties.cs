@@ -12,13 +12,22 @@ public class SharedProperties
         kHalf,
         KCompressed
     }
+
+    enum ObjectTypeForFrameTransmission
+    {
+        kNotMoving,
+        kProjectile,
+        kSendAll
+    }
+    
     // these settings determine how the data for specific vectors is stored in the buffer, so it can be modified as needed.
     static readonly SetCompressionOnVectors PositionCompression = SetCompressionOnVectors.kFull;
     static readonly SetCompressionOnVectors OrientationCompression = SetCompressionOnVectors.kFull;
     static readonly SetCompressionOnVectors ScaleCompression = SetCompressionOnVectors.kFull;
     static readonly SetCompressionOnVectors VelocityCompression = SetCompressionOnVectors.kFull;
 
-    public ulong OriginatingObjectID {get; set;} = 0; // only used on transmission side for now.
+    public ObjectTypeForFrameTransmission typeForFrameTransmission = kSendAll;  // only used on server side. This details if we should bother to send stuff like position per frame if we've already set velocity
+    public short OriginatingObjectIDIndex {get; set;} = 0; // only used on transmission side for now.
     public float ModelRadius { get; set;} = 0; // only used on transmission side.
     public Vector3 Position { get; set; } = {0,0,0};
     public Vector3 Orientation { get; set; } = {0,0,0};
@@ -44,6 +53,7 @@ public class SharedProperties
         kSound = 0x10,
         kModel = 0x20,
         kAnimation = 0x40,
+        kParticleEffect = 0x80
     }
 
     public SharedProperties()

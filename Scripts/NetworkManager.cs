@@ -13,28 +13,76 @@ using Godot.Collections;
 
 public class NetworkManager
 {
-    public List<PlayerState> Players { get; set; } = new List<PlayerState>();
-    public List<FrameState> Frames { get; set; } = new List<FrameState>();
+    public List<PlayerState> Players { get; set; }
+    public List<FrameState> Frames { get; set; } 
     // NOTE - these need to be precached BEFORE we start the game; they cannot be changed post game start, since they are transmitted
     // to all clients on each Client being initialized. Also, they can't ba larger than 65536 in size, but that should be enough for anyone - this is the max index size in individual SharedProperties
-    public List<string> SoundsUsed { get; set; } = new List<string>();
-    public List<string> ModelsUsed { get; set; } = new List<string>();
-    public List<string> AnimationsUsed { get; set; } = new List<string>();
+    private List<string> SoundsUsed { get; set; } = new List<string>();
+    private List<string> ModelsUsed { get; set; } = new List<string>();
+    private List<string> AnimationsUsed { get; set; } = new List<string>();
+
+    private List<short> Node3DIDsDeletedThisFrame;
+
+    private HashedSlotArray IDToNetworkIDLookup;
 
     private int FrameCount = 0;
 
+    private static readonly string NETWORKED_GROUP_NAME = "networked";
+
     public NetworkManager()
     {
+    }
+
+    public void AddPrecacheAnimationUsed_Server(string animationName)
+    {
+        AnimationsUsed.Add(animationName);
+    }
+
+    public void AddPrecaheModelsUsed_Server(string modelName)
+    {
+        ModelsUsed.Add(modelName);
+    }
+
+    public void AddPrecahesoundsUsed_Server(string soundsName)
+    {
+        SoundsUsed.Add(soundsName);
+    }
+
+    public void AddNode3DToNetworkedNodeList_Server(Node3D newNode)
+    {
+        node.AddToGroup(NETWORKED_GROUP_NAME);
+        IDToNetworkIDLookup.Insert(newNode.GetInstanceId());
+    }
+
+    public void RemoveNode3DfromNetworkNodeList_Server(Node3D nodeToRemove)
+    {
+        short indexOfObjectBeingRemoved = IDToNetworkIDLookup.Find(nodeToRemove.GetInstanceId());
+        Node3DIDsDeletedThisFrame.Add(indexOfObjectBeingRemoved);
+    }
+
+    public void NewGameSetup()
+    {
+        // note, not reseting the arrays of animations, models and sounds used, since this shouldn't change game to game.
+        Players = new List<PlayerState>();
+        Frames = new List<FrameState>();
+
+        Node3DIDsDeletedThisFrame = new List<short>();
+
+        FrameCount = 0;
+
+        // zeroed by default.
+        IDToNetworkIDLookup = new Array<ulong>(65536);
     }
 
     // on the server, construct packets to be sent to each player.
     public void TickNetwork_Server()
     {
         // get all the 3D objects in the scene we need to be sharing with clients
-        Array<XmlNode3D> nodesToShare = GetTree().GetNodesInGroup("share");
+        Array<XmlNode3D> nodesToShare = GetTree().GetNodesInGroup(NETWORKED_GROUP_NAME);
         // create a new FrameState array of SharedProperites, one for each node and copy the values we want in to this new framestate
         FrameState newFrameState = new FrameState(nodesToShare.Count);
         newFrameState.FrameIndex = FrameCount;
+        newFrameState.Node3DIDsDeletedForThisFrame = Node3DIDsDeletedThisFrame;
 
         int objectCount = 0;
         foreach (Node3D sharedObject in nodesToShare)
@@ -43,7 +91,7 @@ public class NetworkManager
             newSharedProperty.Position = sharedObject.GlobalPosition;
             newSharedProperty.Scale = sharedObject.Scale;
             newSharedProperty.Orientation = sharedObject.Rotation;
-            newSharedProperty.OriginatingObjectID = sharedObject.GetInstanceId();
+            newSharedProperty.OriginatingObjectID = IDToNetworkIDLookup.Find(sharedObject.GetInstanceId());
 
             // Get model radius from MeshInstance3D bounding box
             MeshInstance3D meshInstance = null;
@@ -119,9 +167,9 @@ public class NetworkManager
 
                 // use the player position, orientation and view frustum to determine if this object can actually be seen.
                 // note, if the object has a sound on it, transmit it anyway, so we have a correct 3D position for the sound to move.
-                bool shouldTransmit = player.DetermineSharedObjectCanBeSeenByPlayer(sharedProperties.Position, sharedProperties.ModelRadius, sharedProperties.PlayingSound, sharedProperties.SoundRadius);
+                bool shouldTransmitThisObject = player.DetermineSharedObjectCanBeSeenByPlayer(sharedProperties.Position, sharedProperties.ModelRadius, sharedProperties.PlayingSound, sharedProperties.SoundRadius);
                 
-                if (shouldTransmit)
+                if (shouldTransmitThisObject)
                 {
                     // now find the corresponding entity in the last acked frame state, assuming either exists (and it's possible they won't, if it's a new object or first frame)
                     if (lastAckedFrameState != null)
@@ -151,12 +199,42 @@ public class NetworkManager
                 }
             }
             objectCountPtr = objectsWrittenToBuffer;
-        }
 
-        // transmit the packet.
+            // now add to the buffer all the node ID's that are deleted since the last frame state the player acked, so the client can know to delete them.
+            List<short> aggregatedNodeIDsDeleted = new List<short>();
+            foreach(FrameState olderFrameState in Frames)
+            {
+                if (olderFrameState.FrameIndex > player.LastAckedFrame)
+                {
+                    aggregatedNodeIDsDeleted.AddRange(olderFrameState.Node3DIDsDeletedForThisFrame);
+                    break;
+                }
+            }
+            // now add them into the buffer.
+            unsafe
+            {
+                fixed (byte* bufferPtr = playerBuffer)
+                {
+                    // Write the count as a short
+                    *(short*)(bufferPtr + currentOffset) = (short)aggregatedNodeIDsDeleted.Count;
+                    currentOffset += sizeof(short);
+
+                    // Write each deleted node ID
+                    foreach (short nodeID in aggregatedNodeIDsDeleted)
+                    {
+                        *(short*)(bufferPtr + currentOffset) = nodeID;
+                        currentOffset += sizeof(short);
+                    }
+                }
+            }
+
+            // transmit the packet to the player
+        }
 
         // remove any old frame states we don't need any more, because all players have acked beyond them.
         RemoveOldUnusedFrameStatesForPlayer();   
+        // clear out nodes that are deleted from this frame.
+        Node3DIDsDeletedThisFrame = new List<short>();
         FrameCount++;
     }
     
@@ -183,5 +261,95 @@ public class NetworkManager
         }
 
         Frames.RemoveAll(frame => frame.FrameSet < lowestLastAckedFrame);
+    }
+}
+
+public class HashedSlotArray
+{
+    private const int ARRAY_SIZE = 65536;
+    private const int INDEX_MASK = 0xFFFF; // For fast modulo via bitwise AND
+
+    private ulong[] slots = new ulong[ARRAY_SIZE];
+    private bool[] occupied = new bool[ARRAY_SIZE]; // Track which slots are in use
+
+    /// <summary>
+    /// Inserts a ulong value using the value itself as a hash for initial placement.
+    /// Returns the index where stored, or -1 if array is full.
+    /// </summary>
+    public short Insert(ulong value)
+    {
+        // Hash: XOR all 16-bit chunks together for better distribution
+        short startIndex = (short)((value ^ (value >> 16) ^ (value >> 32) ^ (value >> 48)) & INDEX_MASK);
+        short currentIndex = startIndex;
+
+        do
+        {
+            if (!occupied[currentIndex])
+            {
+                slots[currentIndex] = value;
+                occupied[currentIndex] = true;
+                return currentIndex;
+            }
+
+            // Linear probe with wraparound
+            currentIndex = (short)((currentIndex + 1) & INDEX_MASK);
+        }
+        while (currentIndex != startIndex);
+
+        // Array is full
+        return -1;
+    }
+
+    /// <summary>
+    /// Removes the value at the given index.
+    /// </summary>
+    public void RemoveAt(short index)
+    {
+        occupied[index] = false;
+    }
+
+    /// <summary>
+    /// Gets the value at the given index.
+    /// </summary>
+    public ulong GetAt(short index)
+    {
+        return slots[index];
+    }
+
+    public bool IsOccupied(short index)
+    {
+        return occupied[index];
+    }
+
+    /// <summary>
+    /// Finds the index of a given ulong value in the array.
+    /// Returns the index where found, or -1 if not present.
+    /// </summary>
+    public short Find(ulong value)
+    {
+        // Hash: XOR all 16-bit chunks together for better distribution
+        short startIndex = (short)((value ^ (value >> 16) ^ (value >> 32) ^ (value >> 48)) & INDEX_MASK);
+        short currentIndex = startIndex;
+
+        do
+        {
+            if (occupied[currentIndex] && slots[currentIndex] == value)
+            {
+                return currentIndex;
+            }
+
+            // If we hit an unoccupied slot, the value isn't in the array
+            if (!occupied[currentIndex])
+            {
+                return -1;
+            }
+
+            // Linear probe with wraparound
+            currentIndex = (short)((currentIndex + 1) & INDEX_MASK);
+        }
+        while (currentIndex != startIndex);
+
+        // Wrapped all the way around, not found
+        return -1;
     }
 }
