@@ -8,8 +8,8 @@ public class NetworkingPlayerState
     public Vector3 Orientation { get; set; }
     public Vector3 Velocity { get; set; }
 
-    public static readonly int MAX_PACKET_SIZE = 6144;
-    public byte[] CurrentPlayerPacket = new byte[MAX_PACKET_SIZE];
+    public static readonly int MAX_UDP_PACKET_SIZE = 1400;
+    public byte[] CurrentUDPPlayerPacket = new byte[MAX_UDP_PACKET_SIZE];
 
     static readonly float[] FOV = {90.0f, 70.0f};
 
