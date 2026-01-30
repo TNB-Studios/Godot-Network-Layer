@@ -1,12 +1,7 @@
-using System.Data.SqlTypes;
 using System.Numerics;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics.X86;
-using System.Runtime.Serialization;
 using Godot;
 
-public class PlayerState
+public class NetworkingPlayerState
 {
     public int LastAckedFrame { get; set; }
     public Vector3 Position { get; set; }
@@ -18,7 +13,7 @@ public class PlayerState
 
     static readonly float[] FOV = {90.0f, 70.0f};
 
-    public PlayerState()
+    public NetworkingPlayerState()
     {
         LastAckedFrame = -1;
         Position = Vector3.Zero;

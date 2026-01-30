@@ -13,21 +13,30 @@ using Godot.Collections;
 
 public class NetworkManager
 {
-    public List<PlayerState> Players { get; set; }
-    public List<FrameState> Frames { get; set; } 
-    // NOTE - these need to be precached BEFORE we start the game; they cannot be changed post game start, since they are transmitted
+    // common to both server and client
+    public List<NetworkingPlayerState> Players { get; set; }  // note, on the server, this will have mulitple entries. On the Client, only one
+ 
+    // NOTE - On the server these need to be precached BEFORE we start the game; they cannot be changed post game start, since they are transmitted
     // to all clients on each Client being initialized. Also, they can't ba larger than 65536 in size, but that should be enough for anyone - this is the max index size in individual SharedProperties
     private List<string> SoundsUsed { get; set; } = new List<string>();
     private List<string> ModelsUsed { get; set; } = new List<string>();
     private List<string> AnimationsUsed { get; set; } = new List<string>();
+    private List<string> ParticleEffectsUsed {get; set;} = new List<string>();
 
-    private List<short> Node3DIDsDeletedThisFrame;
 
     private HashedSlotArray IDToNetworkIDLookup;
 
+    // Client Side specific
+    private int FramesFromServerCount = 0;
+
+    // Server Side Specific
     private int FrameCount = 0;
+    public List<FrameState> Frames { get; set; } 
+    private List<short> Node3DIDsDeletedThisFrame;
 
     private static readonly string NETWORKED_GROUP_NAME = "networked";
+
+    private bool gameStarted = false;
 
     public NetworkManager()
     {
@@ -35,16 +44,25 @@ public class NetworkManager
 
     public void AddPrecacheAnimationUsed_Server(string animationName)
     {
+        Debug.Assert(!gameStarted, "Game Started. Can't be adding Animations used at this point!!");   
         AnimationsUsed.Add(animationName);
     }
 
     public void AddPrecaheModelsUsed_Server(string modelName)
     {
+        Debug.Assert(!gameStarted,"Game Started. Can't be adding Models used at this point!!");   
         ModelsUsed.Add(modelName);
     }
 
-    public void AddPrecahesoundsUsed_Server(string soundsName)
+    public void AddPrecaheSoundsUsed_Server(string soundsName)
     {
+        Debug.Assert(!gameStarted,"Game Started. Can't be adding Sounds used at this point!!");
+        SoundsUsed.Add(soundsName);
+    }
+
+    public void AddPrecaheParticleEffectsUsed_Server(string soundsName)
+    {
+        Debug.Assert(!gameStarted,"Game Started. Can't be adding Particle Effects used at this point!!");
         SoundsUsed.Add(soundsName);
     }
 
@@ -60,7 +78,7 @@ public class NetworkManager
         Node3DIDsDeletedThisFrame.Add(indexOfObjectBeingRemoved);
     }
 
-    public void NewGameSetup()
+    public void NewGameSetup_Server()
     {
         // note, not reseting the arrays of animations, models and sounds used, since this shouldn't change game to game.
         Players = new List<PlayerState>();
@@ -72,6 +90,8 @@ public class NetworkManager
 
         // zeroed by default.
         IDToNetworkIDLookup = new Array<ulong>(65536);
+
+        gameStarted = true;
     }
 
     // on the server, construct packets to be sent to each player.
@@ -109,11 +129,11 @@ public class NetworkManager
                 Aabb aabb = meshInstance.GetAabb();
                 Vector3 halfExtents = aabb.Size * 0.5f;
                 // Radius is the length from center to corner (bounding sphere)
-                newSharedProperty.ModelRadius = halfExtents.Length();
+                newSharedProperty.ViewRadius = halfExtents.Length();
             }
             else
             {
-                newSharedProperty.ModelRadius = 1.0f; // Default fallback
+                newSharedProperty.ViewRadius = 1.0f; // Default fallback
             }
 
             if (sharedObject is CharacterBody3D characterBody)
@@ -167,7 +187,7 @@ public class NetworkManager
 
                 // use the player position, orientation and view frustum to determine if this object can actually be seen.
                 // note, if the object has a sound on it, transmit it anyway, so we have a correct 3D position for the sound to move.
-                bool shouldTransmitThisObject = player.DetermineSharedObjectCanBeSeenByPlayer(sharedProperties.Position, sharedProperties.ModelRadius, sharedProperties.PlayingSound, sharedProperties.SoundRadius);
+                bool shouldTransmitThisObject = player.DetermineSharedObjectCanBeSeenByPlayer(sharedProperties.Position, sharedProperties.ViewRadius, sharedProperties.PlayingSound, sharedProperties.SoundRadius);
                 
                 if (shouldTransmitThisObject)
                 {
@@ -232,19 +252,15 @@ public class NetworkManager
         }
 
         // remove any old frame states we don't need any more, because all players have acked beyond them.
-        RemoveOldUnusedFrameStatesForPlayer();   
+        RemoveOldUnusedFrameStatesForPlayer_Server();   
         // clear out nodes that are deleted from this frame.
         Node3DIDsDeletedThisFrame = new List<short>();
         FrameCount++;
     }
     
-    public void TickNetwork_Client()
-    {
-        RemoveOldUnusedFrameStatesForPlayer();   
-        FrameCount++;
-    }
 
-    void RemoveOldUnusedFrameStatesForPlayer()
+
+    void RemoveOldUnusedFrameStatesForPlayer_Server()
     {
         if (Players.Count == 0)
         {
@@ -261,6 +277,98 @@ public class NetworkManager
         }
 
         Frames.RemoveAll(frame => frame.FrameSet < lowestLastAckedFrame);
+    }
+
+//******************************************************************************
+//
+//  Client side functions
+//
+//******************************************************************************
+
+    public NetworkingPlayerState Client_ResetNetworking()
+    {
+        Players = new List<PlayerState>();
+        // add a specific player for this player
+        NetworkingPlayerState thisPlayer = new NetworkingPlayerState();
+        Players.Add(thisPlayer);
+
+        FramesFromServerCount = 0;
+        IDToNetworkIDLookup = new Array<ulong>(65536);
+    }
+
+    public void PacketReceived_Client(byte[] incomingBuffer)
+    {
+        int currentOffset = 0;
+
+        unsafe
+        {
+            fixed (byte* bufferPtr = incomingBuffer)
+            {
+                // Read frame index (2 bytes)
+                short frameIndex = *(short*)(bufferPtr + currentOffset);
+                currentOffset += 2;
+
+                // Read object count (2 bytes)
+                short objectCount = *(short*)(bufferPtr + currentOffset);
+                currentOffset += 2;
+
+                // Process each SharedProperty
+                for (int i = 0; i < objectCount; i++)
+                {
+                    // Read the object index from the buffer
+                    short objectIndex = *(short*)(bufferPtr + currentOffset);
+
+                    // Find or create the Node3D for this object
+                    Node3D targetNode;
+                    if (IDToNetworkIDLookup.IsOccupied(objectIndex))
+                    {
+                        // Existing object - get it from the lookup
+                        ulong instanceId = IDToNetworkIDLookup.GetAt(objectIndex);
+                        targetNode = GodotObject.InstanceFromId(instanceId) as Node3D;
+                    }
+                    else
+                    {
+                        // New object - create a Node3D and register it at the same index as server
+                        targetNode = new Node3D();
+                        // TODO: Add to scene tree
+                        IDToNetworkIDLookup.InsertAt(objectIndex, targetNode.GetInstanceId());
+                    }
+
+                    // Read and apply the SharedProperty data to the Node3D
+                    int bytesRead = SharedProperties.ReadDataForObject(
+                        bufferPtr + currentOffset,
+                        targetNode
+                    );
+
+                    currentOffset += bytesRead;
+                }
+
+                // Read deleted nodes count
+                short deletedCount = *(short*)(bufferPtr + currentOffset);
+                currentOffset += 2;
+
+                // Process deleted node IDs
+                for (int i = 0; i < deletedCount; i++)
+                {
+                    short deletedNodeID = *(short*)(bufferPtr + currentOffset);
+                    currentOffset += 2;
+
+                    // Look up the instance ID from the network ID
+                    if (IDToNetworkIDLookup.IsOccupied(deletedNodeID))
+                    {
+                        ulong instanceId = IDToNetworkIDLookup.GetAt(deletedNodeID);
+                        Node3D nodeToDelete = GodotObject.InstanceFromId(instanceId) as Node3D;
+                        if (nodeToDelete != null)
+                        {
+                            nodeToDelete.QueueFree();
+                        }
+                        IDToNetworkIDLookup.RemoveAt(deletedNodeID);
+                    }
+                }
+            }
+        }
+
+        FramesFromServerCount++;
     }
 }
 
@@ -314,6 +422,16 @@ public class HashedSlotArray
     public ulong GetAt(short index)
     {
         return slots[index];
+    }
+
+    /// <summary>
+    /// Inserts a ulong value at a specific index.
+    /// Used on the client side to match server-assigned indices.
+    /// </summary>
+    public void InsertAt(short index, ulong value)
+    {
+        slots[index] = value;
+        occupied[index] = true;
     }
 
     public bool IsOccupied(short index)

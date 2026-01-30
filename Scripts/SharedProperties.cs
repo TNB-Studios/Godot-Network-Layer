@@ -27,8 +27,7 @@ public class SharedProperties
     static readonly SetCompressionOnVectors VelocityCompression = SetCompressionOnVectors.kFull;
 
     public ObjectTypeForFrameTransmission typeForFrameTransmission = kSendAll;  // only used on server side. This details if we should bother to send stuff like position per frame if we've already set velocity
-    public short OriginatingObjectIDIndex {get; set;} = 0; // only used on transmission side for now.
-    public float ModelRadius { get; set;} = 0; // only used on transmission side.
+    public float ViewRadius { get; set;} = 0; // only used on transmission side.
     public Vector3 Position { get; set; } = {0,0,0};
     public Vector3 Orientation { get; set; } = {0,0,0};
     public Vector3 Velocity { get; set; } = {0,0,0};
@@ -40,7 +39,9 @@ public class SharedProperties
     public short CurrentAnimation { get; set; } = -1;
 
     public short PlayingSound {get; set; } = -1;
-    public float SoundRadius {get; set;} = 10; 
+    public float SoundRadius {get; set;} = 10; // used server side
+
+    public short ParticleEffect {get; set; } = -1;
 
     private int currentBufferOffset = 0;
     private byte* currentBuffer = null;
@@ -65,6 +66,7 @@ public class SharedProperties
         CurrentAnimation = -1;
         ObjectIndex = 0;
         CurrentModel = -1;
+        PlayingSound = -1;
     }
 
     void SetAddedObjectToBuffer(SharedObjectValueSetMask newPropertyToAdd)
@@ -131,127 +133,198 @@ public class SharedProperties
         return normalized * length;
     }
 
-    public unsafe int ReadDataForObject(byte* buffer)
+    public static unsafe int ReadDataForObject(byte* buffer, Node3D targetNode)
     {
-        short incomingObjectIndex = *(short*)buffer;
-        if (incomingObjectIndex != ObjectIndex)
-        {
-            return 0;
-        }
-
-        currentBuffer = buffer;
-        currentBufferOffset = 3;
+        int offset = 3; // Skip ObjectIndex (2 bytes) + Mask (1 byte)
         byte mask = buffer[2];
 
+        // Position
         if ((mask & (byte)SharedObjectValueSetMask.kPosition) != 0)
         {
+            Vector3 position;
             if (PositionCompression == SetCompressionOnVectors.kFull)
             {
-                Position = ReadVectorFromBuffer();         
+                position = *(Vector3*)(buffer + offset);
+                offset += sizeof(float) * 3;
             }
             else if (PositionCompression == SetCompressionOnVectors.kHalf)
             {
-                Position = ReadVectorFromBufferAsHalf();
+                position = new Vector3(
+                    (float)*(Half*)(buffer + offset),
+                    (float)*(Half*)(buffer + offset + 2),
+                    (float)*(Half*)(buffer + offset + 4)
+                );
+                offset += sizeof(Half) * 3;
             }
             else
             {
-                Position = ReadVectorFromBufferCompressed();
+                float length = (float)*(Half*)(buffer + offset);
+                offset += sizeof(Half);
+                Vector3 dir = ByteToDir(buffer[offset]);
+                offset++;
+                position = dir * length;
             }
+            targetNode.GlobalPosition = position;
         }
 
+        // Orientation
         if ((mask & (byte)SharedObjectValueSetMask.kOrientation) != 0)
         {
+            Vector3 orientation;
             if (OrientationCompression == SetCompressionOnVectors.kFull)
             {
-                Orientation = ReadVectorFromBuffer();
+                orientation = *(Vector3*)(buffer + offset);
+                offset += sizeof(float) * 3;
             }
             else if (OrientationCompression == SetCompressionOnVectors.kHalf)
             {
-                Orientation = ReadVectorFromBufferAsHalf();
+                orientation = new Vector3(
+                    (float)*(Half*)(buffer + offset),
+                    (float)*(Half*)(buffer + offset + 2),
+                    (float)*(Half*)(buffer + offset + 4)
+                );
+                offset += sizeof(Half) * 3;
             }
             else
             {
-                Orientation = ReadVectorFromBufferCompressed();
+                float length = (float)*(Half*)(buffer + offset);
+                offset += sizeof(Half);
+                Vector3 dir = ByteToDir(buffer[offset]);
+                offset++;
+                orientation = dir * length;
             }
+            targetNode.Rotation = orientation;
         }
 
+        // Scale
         if ((mask & (byte)SharedObjectValueSetMask.kScale) != 0)
         {
+            Vector3 scale;
             if (ScaleCompression == SetCompressionOnVectors.kFull)
             {
-                Scale = ReadVectorFromBuffer();       
+                scale = *(Vector3*)(buffer + offset);
+                offset += sizeof(float) * 3;
             }
             else if (ScaleCompression == SetCompressionOnVectors.kHalf)
             {
-                Scale = ReadVectorFromBufferAsHalf();
+                scale = new Vector3(
+                    (float)*(Half*)(buffer + offset),
+                    (float)*(Half*)(buffer + offset + 2),
+                    (float)*(Half*)(buffer + offset + 4)
+                );
+                offset += sizeof(Half) * 3;
             }
             else
             {
-                Scale = ReadVectorFromBufferCompressed();
+                float length = (float)*(Half*)(buffer + offset);
+                offset += sizeof(Half);
+                Vector3 dir = ByteToDir(buffer[offset]);
+                offset++;
+                scale = dir * length;
             }
+            targetNode.Scale = scale;
         }
 
+        // Velocity
         if ((mask & (byte)SharedObjectValueSetMask.kVelocity) != 0)
         {
-            if (VeclocityCompression == SetCompressionOnVectors.kFull)
+            Vector3 velocity;
+            if (VelocityCompression == SetCompressionOnVectors.kFull)
             {
-                Veclocity = ReadVectorFromBuffer();
+                velocity = *(Vector3*)(buffer + offset);
+                offset += sizeof(float) * 3;
             }
-            else if (VeclocityCompression == SetCompressionOnVectors.kHalf)
+            else if (VelocityCompression == SetCompressionOnVectors.kHalf)
             {
-                Veclocity = ReadVectorFromBufferAsHalf();
+                velocity = new Vector3(
+                    (float)*(Half*)(buffer + offset),
+                    (float)*(Half*)(buffer + offset + 2),
+                    (float)*(Half*)(buffer + offset + 4)
+                );
+                offset += sizeof(Half) * 3;
             }
             else
             {
-                Veclocity = ReadVectorFromBufferCompressed();
+                float length = (float)*(Half*)(buffer + offset);
+                offset += sizeof(Half);
+                Vector3 dir = ByteToDir(buffer[offset]);
+                offset++;
+                velocity = dir * length;
             }
+            // TODO: Apply velocity to targetNode
         }
 
+        // Sound
         if ((mask & (byte)SharedObjectValueSetMask.kSound) != 0)
         {
+            short playingSound;
             if (Globals.networkManager.SoundsUsed.Count > 255)
             {
-                PlayingSound = *(short*)(currentBuffer + currentBufferOffset);
-                currentBufferOffset += 2;
+                playingSound = *(short*)(buffer + offset);
+                offset += 2;
             }
             else
             {
-                PlayingSound = currentBuffer[currentBufferOffset];
-                currentBufferOffset++;
+                playingSound = buffer[offset];
+                offset++;
             }
-            SoundRadius = (float)*(Half*)(currentBuffer + currentBufferOffset);
-            currentBufferOffset += 2;
+            float soundRadius = (float)*(Half*)(buffer + offset);
+            offset += 2;
+            // TODO: Apply sound to targetNode
         }
 
+        // Model
         if ((mask & (byte)SharedObjectValueSetMask.kModel) != 0)
         {
+            short currentModel;
             if (Globals.networkManager.ModelsUsed.Count > 255)
             {
-                CurrentModel = *(short*)(currentBuffer + currentBufferOffset);
-                currentBufferOffset += 2;
+                currentModel = *(short*)(buffer + offset);
+                offset += 2;
             }
             else
             {
-                CurrentModel = currentBuffer[currentBufferOffset];
-                currentBufferOffset++;
+                currentModel = buffer[offset];
+                offset++;
             }
+            // TODO: Apply model to targetNode
         }
 
+        // Animation
         if ((mask & (byte)SharedObjectValueSetMask.kAnimation) != 0)
         {
+            short currentAnimation;
             if (Globals.networkManager.AnimationsUsed.Count > 255)
             {
-                CurrentAnimation = *(short*)(currentBuffer + currentBufferOffset);
-                currentBufferOffset += 2;
+                currentAnimation = *(short*)(buffer + offset);
+                offset += 2;
             }
             else
             {
-                CurrentAnimation = currentBuffer[currentBufferOffset];
-                currentBufferOffset++;
+                currentAnimation = buffer[offset];
+                offset++;
             }
+            // TODO: Apply animation to targetNode
         }
 
-        return currentBufferOffset;
+        // Particle Effect
+        if ((mask & (byte)SharedObjectValueSetMask.kParticleEffect) != 0)
+        {
+            short particleEffect;
+            if (Globals.networkManager.ParticleEffectsUsed.Count > 255)
+            {
+                particleEffect = *(short*)(buffer + offset);
+                offset += 2;
+            }
+            else
+            {
+                particleEffect = buffer[offset];
+                offset++;
+            }
+            // TODO: Apply particle effect to targetNode
+        }
+
+        return offset;
     }
 
     public unsafe int ConstructDataForObject(byte* buffer, int spaceLeftInBytes, SharedProperties oldSharedProperties)
@@ -328,12 +401,12 @@ public class SharedProperties
             SetAddedObjectToBuffer(SharedObjectValueSetMask.kSound);
             if (Globals.networkManager.SoundsUsed.Count > 255)
             {
-                *(short*)(currentBuffer) = PlayingSound;
+                *(short*)(currentBuffer + currentBufferOffset) = PlayingSound;
                 currentBufferOffset += 2;
             }
             else
             {
-                currentBuffer + currentBufferOffset = PlayingSound;
+                currentBuffer[currentBufferOffset] = (byte)PlayingSound;
                 currentBufferOffset++;
             }
             *(Half*)(currentBuffer + currentBufferOffset) = (Half)SoundRadius;
@@ -344,12 +417,12 @@ public class SharedProperties
             SetAddedObjectToBuffer(SharedObjectValueSetMask.kModel);
             if (Globals.networkManager.ModelsUsed.Count > 255)
             {
-                *(short*)(currentBuffer) = CurrentModel;
+                *(short*)(currentBuffer + currentBufferOffset) = CurrentModel;
                 currentBufferOffset += 2;
             }
             else
             {
-                currentBuffer + currentBufferOffset = CurrentModel;
+                currentBuffer[currentBufferOffset] = (byte)CurrentModel;
                 currentBufferOffset++;
             }
         }
@@ -358,12 +431,26 @@ public class SharedProperties
             SetAddedObjectToBuffer(SharedObjectValueSetMask.kAnimation);
             if (Globals.networkManager.AnimationsUsed.Count > 255)
             {
-                *(short*)(currentBuffer) = CurrentAnimation;
+                *(short*)(currentBuffer + currentBufferOffset) = CurrentAnimation;
                 currentBufferOffset += 2;
             }
             else
             {
-                currentBuffer + currentBufferOffset = CurrentAnimation;
+                currentBuffer[currentBufferOffset] = (byte)CurrentAnimation;
+                currentBufferOffset++;
+            }
+        }
+        if (oldSharedProperties == null || ParticleEffect != oldSharedProperties.ParticleEffect)
+        {
+            SetAddedObjectToBuffer(SharedObjectValueSetMask.kParticleEffect);
+            if (Globals.networkManager.ParticleEffectsUsed.Count > 255)
+            {
+                *(short*)(currentBuffer + currentBufferOffset) = ParticleEffect;
+                currentBufferOffset += 2;
+            }
+            else
+            {
+                currentBuffer[currentBufferOffset] = (byte)ParticleEffect;
                 currentBufferOffset++;
             }
         }
@@ -497,5 +584,57 @@ public class SharedProperties
             return Vector3.Zero;
         }
         return ByteDirs[b];
+    }
+
+    /// <summary>
+    /// Returns the byte size for a vector based on its compression setting.
+    /// </summary>
+    private static int GetVectorSizeForCompression(SetCompressionOnVectors compression)
+    {
+        return compression switch
+        {
+            SetCompressionOnVectors.kFull => 12,       // 3 floats (4 bytes each)
+            SetCompressionOnVectors.kHalf => 6,        // 3 halfs (2 bytes each)
+            SetCompressionOnVectors.KCompressed => 3,  // half magnitude (2) + byte direction (1)
+            _ => 12
+        };
+    }
+
+    /// <summary>
+    /// Calculates the total byte size of a SharedProperty entry given its mask.
+    /// This works because compression settings are compile-time constants.
+    /// </summary>
+    public static int CalculateSizeFromMask(byte mask)
+    {
+        int size = 3; // ObjectIndex (2 bytes) + Mask (1 byte)
+
+        if ((mask & (byte)SharedObjectValueSetMask.kPosition) != 0)
+            size += GetVectorSizeForCompression(PositionCompression);
+
+        if ((mask & (byte)SharedObjectValueSetMask.kOrientation) != 0)
+            size += GetVectorSizeForCompression(OrientationCompression);
+
+        if ((mask & (byte)SharedObjectValueSetMask.kScale) != 0)
+            size += GetVectorSizeForCompression(ScaleCompression);
+
+        if ((mask & (byte)SharedObjectValueSetMask.kVelocity) != 0)
+            size += GetVectorSizeForCompression(VelocityCompression);
+
+        if ((mask & (byte)SharedObjectValueSetMask.kSound) != 0)
+        {
+            size += (Globals.networkManager.SoundsUsed.Count > 255) ? 2 : 1;  // Sound index
+            size += 2;  // SoundRadius as Half
+        }
+
+        if ((mask & (byte)SharedObjectValueSetMask.kModel) != 0)
+            size += (Globals.networkManager.ModelsUsed.Count > 255) ? 2 : 1;
+
+        if ((mask & (byte)SharedObjectValueSetMask.kAnimation) != 0)
+            size += (Globals.networkManager.AnimationsUsed.Count > 255) ? 2 : 1;
+
+        if ((mask & (byte)SharedObjectValueSetMask.kParticleEffect) != 0)
+            size += (Globals.networkManager.ParticleEffectsUsed.Count > 255) ? 2 : 1;
+
+        return size;
     }
 }
