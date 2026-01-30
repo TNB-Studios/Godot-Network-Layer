@@ -108,11 +108,19 @@ public class NetworkManager
 
     private const int TCP_INIT_PACKET_SIZE = 65536;
 
-    public byte[] NewGameSetup_Server()
+    public void NewGameSetup_Server(int playerCount)
     {
         // note, not reseting the arrays of animations, models and sounds used, since this shouldn't change game to game.
-        Players = new List<PlayerState>();
+        Players = new List<NetworkingPlayerState>();
         Frames = new List<FrameState>();
+
+        // Create a PlayerState for each player
+        for (int i = 0; i < playerCount; i++)
+        {
+            NetworkingPlayerState newPlayer = new NetworkingPlayerState();
+            newPlayer.WhichPlayerAreWeOnServer = i;
+            Players.Add(newPlayer);
+        }
 
         Node3DIDsDeletedThisFrame = new List<short>();
 
@@ -126,6 +134,7 @@ public class NetworkManager
         // Create the TCP initialization packet with all precache data and initial object states
         byte[] tcpInitPacket = new byte[TCP_INIT_PACKET_SIZE];
         int currentOffset = 0;
+        int playerIndexOffset = 0; // Will store the offset of the player index byte
 
         unsafe
         {
@@ -137,6 +146,11 @@ public class NetworkManager
                     int gameSpecificBytesWritten = gameSpecificDataWriterCallback(bufferPtr, TCP_INIT_PACKET_SIZE);
                     currentOffset += gameSpecificBytesWritten;
                 }
+
+                // Write player index (1 byte) - placeholder, will be updated per player
+                playerIndexOffset = currentOffset;
+                bufferPtr[currentOffset] = 0;
+                currentOffset++;
 
                 // Write SoundsUsed list
                 currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, SoundsUsed);
@@ -152,6 +166,11 @@ public class NetworkManager
 
                 // Create initial FrameState from all current objects
                 FrameState initialFrameState = CreateFrameStateFromCurrentObjects_Server(FrameCount);
+
+                // Write frame index (3 bytes) - this will be frame 1 (first frame)
+                Debug.Assert(currentOffset + 3 <= TCP_INIT_PACKET_SIZE, "Buffer overflow writing initial frame index");
+                WriteInt24ToBuffer(bufferPtr, currentOffset, FrameCount + 1);
+                currentOffset += 3;
 
                 // Write object count
                 Debug.Assert(currentOffset + sizeof(short) <= TCP_INIT_PACKET_SIZE, "Buffer overflow writing initial object count");
@@ -172,10 +191,28 @@ public class NetworkManager
                 // Store this as frame 0 - the known initial state all clients will have
                 Frames.Add(initialFrameState);
                 FrameCount++;
+
+                // Send the TCP packet to each player, updating the player index for each
+                for (int playerIndex = 0; playerIndex < playerCount; playerIndex++)
+                {
+                    // Update the player index byte in the buffer
+                    bufferPtr[playerIndexOffset] = (byte)playerIndex;
+
+                    // Send the packet to this player
+                    SendTCPInitPacketToPlayer_Server(tcpInitPacket, currentOffset, playerIndex);
+                }
             }
         }
+    }
 
-        return tcpInitPacket;
+    /// <summary>
+    /// Sends the TCP initialization packet to a specific player.
+    /// Override or implement actual network transmission.
+    /// </summary>
+    protected virtual void SendTCPInitPacketToPlayer_Server(byte[] packet, int packetSize, int playerIndex)
+    {
+        // TODO: Implement actual TCP transmission to the player
+        // This is a stub that can be overridden or replaced with actual networking code
     }
 
     /// <summary>
@@ -333,6 +370,59 @@ public class NetworkManager
         return (currentOffset - startOffset, objectsWrittenToBuffer);
     }
 
+    /// <summary>
+    /// Writes a 3-byte integer to a buffer (little-endian).
+    /// </summary>
+    private unsafe void WriteInt24ToBuffer(byte* bufferPtr, int offset, int value)
+    {
+        bufferPtr[offset] = (byte)(value & 0xFF);
+        bufferPtr[offset + 1] = (byte)((value >> 8) & 0xFF);
+        bufferPtr[offset + 2] = (byte)((value >> 16) & 0xFF);
+    }
+
+    /// <summary>
+    /// Reads a 3-byte integer from a buffer (little-endian).
+    /// </summary>
+    private unsafe int ReadInt24FromBuffer(byte* bufferPtr, int offset)
+    {
+        return bufferPtr[offset] | (bufferPtr[offset + 1] << 8) | (bufferPtr[offset + 2] << 16);
+    }
+
+    /// <summary>
+    /// Processes a player input packet received from a client.
+    /// Reads player index to route to correct PlayerState, then delegates parsing.
+    /// </summary>
+    public unsafe void ReadPlayerInputFromClient_Server(byte[] incomingBuffer, int bufferSize)
+    {
+        fixed (byte* bufferPtr = incomingBuffer)
+        {
+            int currentOffset = 0;
+
+            // Read player index (1 byte)
+            byte playerIndex = bufferPtr[currentOffset];
+            currentOffset++;
+
+            // Read input sequence number (4 bytes) - store for potential future use
+            int inputSequenceNumber = *(int*)(bufferPtr + currentOffset);
+            currentOffset += sizeof(int);
+
+            // Validate player index
+            if (playerIndex >= Players.Count)
+            {
+                // Invalid player index - ignore packet
+                return;
+            }
+
+            // Get the player state and delegate remaining parsing
+            NetworkingPlayerState player = Players[playerIndex];
+            // note, we send multiple instances of player movements from the client to the server. If we've already got this one, don't process it again.
+            if (player.inputSequenceNumber < inputSequenceNumber)
+            {
+                player.ReadSpecificPlayerInputFromClient(bufferPtr + currentOffset, bufferSize - currentOffset, inputSequenceNumber);
+            }
+        }
+    }
+
     // on the server, construct packets to be sent to each player.
     public void TickNetwork_Server()
     {
@@ -340,18 +430,18 @@ public class NetworkManager
         Frames.Add(newFrameState);
 
         // now for each player, construct a buffer to be sent to them
-        foreach(PlayerState player in Players)
+        foreach(NetworkingPlayerState player in Players)
         {
             byte[] playerBuffer = player.CurrentUDPPlayerPacket;
-            int currentOffset = 4; // first 2 bytes are frame count, next 2 are object count
+            int currentOffset = 0;
 
             // Find the last acked framestate for delta compression
             FrameState lastAckedFrameState = null;
-            if (player.LastAckedFrame != -1)
+            if (player.LastAckedFrameClientReceived != -1)
             {
                 foreach (FrameState olderFrameState in Frames)
                 {
-                    if (olderFrameState.FrameIndex == player.LastAckedFrame)
+                    if (olderFrameState.FrameIndex == player.LastAckedFrameClientReceived)
                     {
                         lastAckedFrameState = olderFrameState;
                         break;
@@ -364,6 +454,14 @@ public class NetworkManager
             {
                 fixed (byte* bufferPtr = playerBuffer)
                 {
+                    // Write frame index (3 bytes)
+                    WriteInt24ToBuffer(bufferPtr, currentOffset, FrameCount);
+                    currentOffset += 3;
+
+                    // Skip object count for now, write it after we know how many objects
+                    int objectCountOffset = currentOffset;
+                    currentOffset += 2;
+
                     var (bytesWritten, objectCount) = WriteSharedPropertiesToBuffer_Server(
                         bufferPtr,
                         currentOffset,
@@ -374,14 +472,14 @@ public class NetworkManager
 
                     currentOffset += bytesWritten;
 
-                    // Write object count at offset 2
-                    *(short*)(bufferPtr + 2) = (short)objectCount;
+                    // Write object count at the reserved offset
+                    *(short*)(bufferPtr + objectCountOffset) = (short)objectCount;
 
                     // Aggregate deleted node IDs since last acked frame
                     List<short> aggregatedNodeIDsDeleted = new List<short>();
                     foreach (FrameState olderFrameState in Frames)
                     {
-                        if (olderFrameState.FrameIndex > player.LastAckedFrame)
+                        if (olderFrameState.FrameIndex > player.LastAckedFrameClientReceived)
                         {
                             aggregatedNodeIDsDeleted.AddRange(olderFrameState.Node3DIDsDeletedForThisFrame);
                         }
@@ -423,9 +521,9 @@ public class NetworkManager
         int lowestLastAckedFrame = int.MaxValue;
         foreach (PlayerState player in Players)
         {
-            if (player.LastAckedFrame < lowestLastAckedFrame)
+            if (player.LastAckedFrameClientReceived < lowestLastAckedFrame)
             {
-                lowestLastAckedFrame = player.LastAckedFrame;
+                lowestLastAckedFrame = player.LastAckedFrameClientReceived;
             }
         }
 
@@ -438,7 +536,7 @@ public class NetworkManager
 //
 //******************************************************************************
 
-    public NetworkingPlayerState Client_ResetNetworking()
+    public void Client_ResetNetworking()
     {
         Players = new List<NetworkingPlayerState>();
         // add a specific player for this player
@@ -586,6 +684,17 @@ public class NetworkManager
                     currentOffset += gameSpecificBytesRead;
                 }
 
+                // Read player index (1 byte) - which player we are on the server
+                Debug.Assert(currentOffset + 1 <= incomingBuffer.Length, "Buffer underflow reading player index");
+                byte playerIndex = bufferPtr[currentOffset];
+                currentOffset++;
+
+                // Store the player index on our local player state
+                if (Players.Count > 0)
+                {
+                    Players[0].WhichPlayerAreWeOnServer = playerIndex;
+                }
+
                 // Read SoundsUsed list
                 currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, SoundsUsed);
 
@@ -597,6 +706,17 @@ public class NetworkManager
 
                 // Read ParticleEffectsUsed list
                 currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, ParticleEffectsUsed);
+
+                // Read frame index (3 bytes)
+                Debug.Assert(currentOffset + 3 <= incomingBuffer.Length, "Buffer underflow reading initial frame index");
+                int frameIndex = ReadInt24FromBuffer(bufferPtr, currentOffset);
+                currentOffset += 3;
+
+                // Store the frame index as the last acked frame for this client
+                if (Players.Count > 0)
+                {
+                    Players[0].LastAckedFrameClientReceived = frameIndex;
+                }
 
                 // Read object count
                 Debug.Assert(currentOffset + sizeof(short) <= incomingBuffer.Length, "Buffer underflow reading initial object count");
@@ -629,9 +749,15 @@ public class NetworkManager
         {
             fixed (byte* bufferPtr = incomingBuffer)
             {
-                // Read frame index (2 bytes)
-                short frameIndex = *(short*)(bufferPtr + currentOffset);
-                currentOffset += sizeof(short);
+                // Read frame index (3 bytes)
+                int frameIndex = ReadInt24FromBuffer(bufferPtr, currentOffset);
+                currentOffset += 3;
+
+                // Store the frame index as the last acked frame for this client
+                if (Players.Count > 0)
+                {
+                    Players[0].LastAckedFrameClientReceived = frameIndex;
+                }
 
                 // Read object count (2 bytes)
                 short objectCount = *(short*)(bufferPtr + currentOffset);
