@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Numerics;
 using Godot;
 
 public class NetworkingPlayerState
@@ -119,14 +118,14 @@ public class NetworkingPlayerState
         // TODO: Read additional input data (buttons, movement intent, etc.)
     }
 
-    public bool DetermineSharedObjectCanBeSeenByPlayer(Vector objectPosition, float objectRadius, int soundIndex, float soundRadius)
+    public bool DetermineSharedObjectCanBeSeenByPlayer(Vector3 objectPosition, float objectRadius, int soundIndex, float soundRadius)
     {
         bool shouldTransmit = true;
         // first, if we have a sound, we may want to force the object being sent.
         if (soundIndex != -1)
         {
-            Vector deltaVector = objectPosition - Position;
-            float deltaLength = deltaVector.Length;
+            Vector3 deltaVector = objectPosition - Position;
+            float deltaLength = deltaVector.Length();
             if (deltaLength < soundRadius)
             {
                 shouldTransmit = true;

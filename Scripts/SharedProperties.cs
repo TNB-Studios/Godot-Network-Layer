@@ -1,19 +1,18 @@
 using Godot;
 using System;
 using System.Linq.Expressions;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 
-public class SharedProperties
+public unsafe class SharedProperties
 {
-    enum SetCompressionOnVectors
+    public enum SetCompressionOnVectors
     {
         kFull,
         kHalf,
         KCompressed
     }
 
-    enum ObjectTypeForFrameTransmission
+    public enum ObjectTypeForFrameTransmission
     {
         kNotMoving,
         kProjectile,
@@ -26,12 +25,12 @@ public class SharedProperties
     static readonly SetCompressionOnVectors ScaleCompression = SetCompressionOnVectors.kFull;
     static readonly SetCompressionOnVectors VelocityCompression = SetCompressionOnVectors.kFull;
 
-    public ObjectTypeForFrameTransmission typeForFrameTransmission = kSendAll;  // only used on server side. This details if we should bother to send stuff like position per frame if we've already set velocity
+    public ObjectTypeForFrameTransmission typeForFrameTransmission = ObjectTypeForFrameTransmission.kSendAll;  // only used on server side. This details if we should bother to send stuff like position per frame if we've already set velocity
     public float ViewRadius { get; set;} = 0; // only used on transmission side.
-    public Vector3 Position { get; set; } = {0,0,0};
-    public Vector3 Orientation { get; set; } = {0,0,0};
-    public Vector3 Velocity { get; set; } = {0,0,0};
-    public Vector3 Scale { get; set; } = {1, 1, 1};
+    public Vector3 Position { get; set; } = Vector3.Zero;
+    public Vector3 Orientation { get; set; } = Vector3.Zero;
+    public Vector3 Velocity { get; set; } = Vector3.Zero;
+    public Vector3 Scale { get; set; } = Vector3.One;
 
     public short ObjectIndex {get; set; } = 0;
 
@@ -77,7 +76,7 @@ public class SharedProperties
             currentBufferOffset += 3;
             currentBuffer[2] = 0;   // this is where the mask to show what values are set is.
         }
-        currentBuffer[2] |= newPropertyToAdd;
+        currentBuffer[2] |= (byte)newPropertyToAdd;
     }
 
     unsafe void CopyVectorToBuffer(Vector3 vector)

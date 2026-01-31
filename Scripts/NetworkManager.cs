@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq.Expressions;
@@ -315,7 +317,7 @@ public class NetworkManager
         int maxBufferSize,
         FrameState frameState,
         FrameState lastAckedFrameState,
-        PlayerState player)
+        NetworkingPlayerState player)
     {
         int currentOffset = startOffset;
         int objectsWrittenToBuffer = 0;
@@ -519,7 +521,7 @@ public class NetworkManager
         }
 
         int lowestLastAckedFrame = int.MaxValue;
-        foreach (PlayerState player in Players)
+        foreach (NetworkingPlayerState player in Players)
         {
             if (player.LastAckedFrameClientReceived < lowestLastAckedFrame)
             {
