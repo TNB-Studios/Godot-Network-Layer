@@ -15,15 +15,18 @@ using Godot.Collections;
 
 public class NetworkManager
 {
+    // Reference to a node for scene tree access
+    private Node _sceneNode;
+
     // common to both server and client
     public List<NetworkingPlayerState> Players { get; set; }  // note, on the server, this will have mulitple entries. On the Client, only one
  
     // NOTE - On the server these need to be precached BEFORE we start the game; they cannot be changed post game start, since they are transmitted
     // to all clients on each Client being initialized. Also, they can't ba larger than 65536 in size, but that should be enough for anyone - this is the max index size in individual SharedProperties
-    private List<string> SoundsUsed { get; set; } = new List<string>();
-    private List<string> ModelsUsed { get; set; } = new List<string>();
-    private List<string> AnimationsUsed { get; set; } = new List<string>();
-    private List<string> ParticleEffectsUsed {get; set;} = new List<string>();
+    public List<string> SoundsUsed { get; set; } = new List<string>();
+    public List<string> ModelsUsed { get; set; } = new List<string>();
+    public List<string> AnimationsUsed { get; set; } = new List<string>();
+    public List<string> ParticleEffectsUsed {get; set;} = new List<string>();
 
 
     private HashedSlotArray IDToNetworkIDLookup;
@@ -50,6 +53,15 @@ public class NetworkManager
 
     public NetworkManager()
     {
+    }
+
+    /// <summary>
+    /// Sets the scene node reference for accessing the scene tree.
+    /// Must be called before using server networking functions.
+    /// </summary>
+    public void SetSceneNode(Node node)
+    {
+        _sceneNode = node;
     }
 
     /// <summary>
@@ -98,7 +110,7 @@ public class NetworkManager
 
     public void AddNode3DToNetworkedNodeList_Server(Node3D newNode)
     {
-        node.AddToGroup(NETWORKED_GROUP_NAME);
+        newNode.AddToGroup(NETWORKED_GROUP_NAME);
         IDToNetworkIDLookup.Insert(newNode.GetInstanceId());
     }
 
@@ -176,7 +188,7 @@ public class NetworkManager
 
                 // Write object count
                 Debug.Assert(currentOffset + sizeof(short) <= TCP_INIT_PACKET_SIZE, "Buffer overflow writing initial object count");
-                *(short*)(bufferPtr + currentOffset) = (short)initialFrameState.SharedObjects.Length;
+                *(short*)(bufferPtr + currentOffset) = (short)initialFrameState.SharedObjects.Count;
                 currentOffset += sizeof(short);
 
                 // Write all SharedProperties to the buffer (no player culling, no delta compression)
@@ -250,7 +262,7 @@ public class NetworkManager
     private FrameState CreateFrameStateFromCurrentObjects_Server(int frameIndex)
     {
         // get all the 3D objects in the scene we need to be sharing with clients
-        Array<Node3D> nodesToShare = GetTree().GetNodesInGroup(NETWORKED_GROUP_NAME);
+        var nodesToShare = _sceneNode.GetTree().GetNodesInGroup(NETWORKED_GROUP_NAME);
         // create a new FrameState array of SharedProperties, one for each node and copy the values we want into this new framestate
         FrameState newFrameState = new FrameState(nodesToShare.Count);
         newFrameState.FrameIndex = frameIndex;
@@ -529,7 +541,7 @@ public class NetworkManager
             }
         }
 
-        Frames.RemoveAll(frame => frame.FrameSet < lowestLastAckedFrame);
+        Frames.RemoveAll(frame => frame.FrameIndex < lowestLastAckedFrame);
     }
 
 //******************************************************************************

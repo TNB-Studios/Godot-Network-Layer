@@ -6,11 +6,12 @@ public class FrameState
     public List<SharedProperties> SharedObjects { get; set; }
     public int FrameIndex { get; set; }
 
-    private List<ulong> Node3DIDsDeletedForThisFrame;
+    public List<short> Node3DIDsDeletedForThisFrame { get; set; }
 
     public FrameState(int SharedPropertiesCount)
     {
         SharedObjects = new List<SharedProperties>(SharedPropertiesCount);
+        Node3DIDsDeletedForThisFrame = new List<short>();
         FrameIndex = 0;
     }
 }

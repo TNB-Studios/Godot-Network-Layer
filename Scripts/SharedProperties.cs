@@ -33,6 +33,7 @@ public unsafe class SharedProperties
     public Vector3 Scale { get; set; } = Vector3.One;
 
     public short ObjectIndex {get; set; } = 0;
+    public short OriginatingObjectID { get; set; } = 0;
 
     public short CurrentModel { get; set;} = -1;
     public short CurrentAnimation { get; set; } = -1;

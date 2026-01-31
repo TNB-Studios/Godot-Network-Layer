@@ -16,7 +16,7 @@ public class NetworkingPlayerState
     // Client-to-server input packet
     public static readonly int MAX_INPUT_PACKET_SIZE = 1024;
     private byte[] inputPacketBuffer = new byte[MAX_INPUT_PACKET_SIZE];
-    private int inputSequenceNumber = 0;
+    public int inputSequenceNumber = 0;
 
     static readonly float[] FOV = {90.0f, 70.0f};
 
