@@ -15,11 +15,13 @@ using Godot.Collections;
 
 public class NetworkManager
 {
-    // Reference to a node for scene tree access
-    private Node _sceneNode;
+    // Reference nodes for scene tree access
+    private Node _serverSceneNode;
+    private Node _clientSceneNode;
 
     // common to both server and client
-    public List<NetworkingPlayerState> Players { get; set; }  // note, on the server, this will have mulitple entries. On the Client, only one
+
+
  
     // NOTE - On the server these need to be precached BEFORE we start the game; they cannot be changed post game start, since they are transmitted
     // to all clients on each Client being initialized. Also, they can't ba larger than 65536 in size, but that should be enough for anyone - this is the max index size in individual SharedProperties
@@ -33,11 +35,13 @@ public class NetworkManager
 
     // Client Side specific
     private int FramesFromServerCount = 0;
+    NetworkingPlayerState ClientPlayer;
 
     // Server Side Specific
     private int FrameCount = 0;
     public List<FrameState> Frames { get; set; } 
     private List<short> Node3DIDsDeletedThisFrame;
+    public List<NetworkingPlayerState> Players { get; set; }  // note, on the server, this will have mulitple entries.
 
     private static readonly string NETWORKED_GROUP_NAME = "networked";
 
@@ -51,18 +55,12 @@ public class NetworkManager
     public unsafe delegate int GameSpecificDataReader(byte* bufferPtr, int bufferSize);
     private GameSpecificDataReader gameSpecificDataReaderCallback = null;
 
-    public NetworkManager()
+    public NetworkManager(Node serverSceneNode, Node clientSceneNode)
     {
+        _serverSceneNode = serverSceneNode;
+        _clientSceneNode = clientSceneNode;
     }
 
-    /// <summary>
-    /// Sets the scene node reference for accessing the scene tree.
-    /// Must be called before using server networking functions.
-    /// </summary>
-    public void SetSceneNode(Node node)
-    {
-        _sceneNode = node;
-    }
 
     /// <summary>
     /// Registers a callback to write game-specific data at the start of the TCP init packet.
@@ -90,19 +88,19 @@ public class NetworkManager
         AnimationsUsed.Add(animationName);
     }
 
-    public void AddPrecaheModelsUsed_Server(string modelName)
+    public void AddPrecacheModelsUsed_Server(string modelName)
     {
         Debug.Assert(!gameStarted,"Game Started. Can't be adding Models used at this point!!");   
         ModelsUsed.Add(modelName);
     }
 
-    public void AddPrecaheSoundsUsed_Server(string soundsName)
+    public void AddPrecacheSoundsUsed_Server(string soundsName)
     {
         Debug.Assert(!gameStarted,"Game Started. Can't be adding Sounds used at this point!!");
         SoundsUsed.Add(soundsName);
     }
 
-    public void AddPrecaheParticleEffectsUsed_Server(string soundsName)
+    public void AddPrecacheParticleEffectsUsed_Server(string soundsName)
     {
         Debug.Assert(!gameStarted,"Game Started. Can't be adding Particle Effects used at this point!!");
         SoundsUsed.Add(soundsName);
@@ -262,55 +260,85 @@ public class NetworkManager
     private FrameState CreateFrameStateFromCurrentObjects_Server(int frameIndex)
     {
         // get all the 3D objects in the scene we need to be sharing with clients
-        var nodesToShare = _sceneNode.GetTree().GetNodesInGroup(NETWORKED_GROUP_NAME);
+        var nodesToShare = _serverSceneNode.GetTree().GetNodesInGroup(NETWORKED_GROUP_NAME);
         // create a new FrameState array of SharedProperties, one for each node and copy the values we want into this new framestate
         FrameState newFrameState = new FrameState(nodesToShare.Count);
         newFrameState.FrameIndex = frameIndex;
         newFrameState.Node3DIDsDeletedForThisFrame = Node3DIDsDeletedThisFrame;
 
         int objectCount = 0;
-        foreach (Node3D sharedObject in nodesToShare)
+        foreach (Node sharedObject in nodesToShare)
         {
             SharedProperties newSharedProperty = newFrameState.SharedObjects[objectCount++];
-            newSharedProperty.Position = sharedObject.GlobalPosition;
-            newSharedProperty.Scale = sharedObject.Scale;
-            newSharedProperty.Orientation = sharedObject.Rotation;
-            newSharedProperty.OriginatingObjectID = IDToNetworkIDLookup.Find(sharedObject.GetInstanceId());
 
-            // Get model radius from MeshInstance3D bounding box
-            MeshInstance3D meshInstance = null;
-            if (sharedObject is MeshInstance3D directMesh)
-            {
-                meshInstance = directMesh;
-            }
-            else
-            {
-                meshInstance = sharedObject.FindChild("*", true, false) as MeshInstance3D;
-            }
+            newSharedProperty.ObjectIndex = IDToNetworkIDLookup.Find(sharedObject.GetInstanceId());
 
-            if (meshInstance != null)
+            // Determine if this is a 2D or 3D node and set properties accordingly
+            if (sharedObject is Node3D node3D)
             {
-                Aabb aabb = meshInstance.GetAabb();
-                Vector3 halfExtents = aabb.Size * 0.5f;
-                // Radius is the length from center to corner (bounding sphere)
-                newSharedProperty.ViewRadius = halfExtents.Length();
-            }
-            else
-            {
-                newSharedProperty.ViewRadius = 1.0f; // Default fallback
-            }
+                newSharedProperty.Position = node3D.GlobalPosition;
+                newSharedProperty.Scale = node3D.Scale;
+                newSharedProperty.Orientation = node3D.Rotation;
+                newSharedProperty.ObjectIndex = IDToNetworkIDLookup.Find(sharedObject.GetInstanceId());
 
-            if (sharedObject is CharacterBody3D characterBody)
-            {
-                newSharedProperty.Velocity = characterBody.Velocity;
+                // Get model radius from MeshInstance3D bounding box
+                MeshInstance3D meshInstance = null;
+                if (node3D is MeshInstance3D directMesh)
+                {
+                    meshInstance = directMesh;
+                }
+                else
+                {
+                    meshInstance = node3D.FindChild("*", true, false) as MeshInstance3D;
+                }
+
+                if (meshInstance != null)
+                {
+                    Aabb aabb = meshInstance.GetAabb();
+                    Vector3 halfExtents = aabb.Size * 0.5f;
+                    // Radius is the length from center to corner (bounding sphere)
+                    newSharedProperty.ViewRadius = halfExtents.Length();
+                }
+                else
+                {
+                    newSharedProperty.ViewRadius = 1.0f; // Default fallback
+                }
+
+                if (node3D is CharacterBody3D characterBody)
+                {
+                    newSharedProperty.Velocity = characterBody.Velocity;
+                }
+                else if (node3D is RigidBody3D rigidBody)
+                {
+                    newSharedProperty.Velocity = rigidBody.LinearVelocity;
+                }
+                else
+                {
+                    newSharedProperty.Velocity = Vector3.Zero;
+                }
             }
-            else if (sharedObject is RigidBody3D rigidBody)
+            else if (sharedObject is Node2D node2D)
             {
-                newSharedProperty.Velocity = rigidBody.LinearVelocity;
-            }
-            else
-            {
-                newSharedProperty.Velocity = Vector3.Zero;
+                newSharedProperty.ObjectIndex |= (short)SharedProperties.SharedObjectValueSetMask.kIs2DInMask;
+                newSharedProperty.Position = new Vector3(node2D.GlobalPosition.X, node2D.GlobalPosition.Y, 0);
+                newSharedProperty.Scale = new Vector3(node2D.Scale.X, node2D.Scale.Y, 1);
+                newSharedProperty.Orientation = new Vector3(0, node2D.Rotation, 0);  // 2D rotation stored in Y
+
+                newSharedProperty.ViewRadius = 1.0f; // Default for 2D
+
+                // Handle 2D velocity
+                if (node2D is CharacterBody2D characterBody2D)
+                {
+                    newSharedProperty.Velocity = new Vector3(characterBody2D.Velocity.X, characterBody2D.Velocity.Y, 0);
+                }
+                else if (node2D is RigidBody2D rigidBody2D)
+                {
+                    newSharedProperty.Velocity = new Vector3(rigidBody2D.LinearVelocity.X, rigidBody2D.LinearVelocity.Y, 0);
+                }
+                else
+                {
+                    newSharedProperty.Velocity = Vector3.Zero;
+                }
             }
         }
 
@@ -356,7 +384,7 @@ public class NetworkManager
                 {
                     foreach (SharedProperties oldSharedProperties in lastAckedFrameState.SharedObjects)
                     {
-                        if (oldSharedProperties.OriginatingObjectID == sharedObject.OriginatingObjectID)
+                        if (oldSharedProperties.ObjectIndex == sharedObject.ObjectIndex)
                         {
                             oldSharedPropertyToCompareAgainst = oldSharedProperties;
                             break;
@@ -552,10 +580,8 @@ public class NetworkManager
 
     public void Client_ResetNetworking()
     {
-        Players = new List<NetworkingPlayerState>();
         // add a specific player for this player
-        NetworkingPlayerState thisPlayer = new NetworkingPlayerState();
-        Players.Add(thisPlayer);
+        ClientPlayer = new NetworkingPlayerState();
 
         FramesFromServerCount = 0;
         IDToNetworkIDLookup = new HashedSlotArray();
@@ -612,29 +638,45 @@ public class NetworkManager
 
         for (int i = 0; i < objectCount; i++)
         {
-            // Read the object index from the buffer
-            short objectIndex = *(short*)(bufferPtr + currentOffset);
+            // Read the encoded object index from the buffer
+            short encodedObjectIndex = *(short*)(bufferPtr + currentOffset);
+            byte baseMask = bufferPtr[currentOffset + 2];
 
-            // Find or create the Node3D for this object
-            Node3D targetNode;
+            // Decode the object index and extract extended flags into the full mask
+            SharedProperties.DecodeObjectIndexAndMask(encodedObjectIndex, baseMask, out short objectIndex, out short fullMask);
+
+            // Check if this is a 2D object
+            bool is2D = (fullMask & 0x100) != 0;  // kIs2D flag
+
+            // Find or create the node for this object
+            Node targetNode;
             if (IDToNetworkIDLookup.IsOccupied(objectIndex))
             {
                 // Existing object - get it from the lookup
                 ulong instanceId = IDToNetworkIDLookup.GetAt(objectIndex);
-                targetNode = GodotObject.InstanceFromId(instanceId) as Node3D;
+                targetNode = GodotObject.InstanceFromId(instanceId) as Node;
             }
             else
             {
-                // New object - create a Node3D and register it at the same index as server
-                targetNode = new Node3D();
-                // TODO: Add to scene tree
+                // New object - create appropriate node type and register it at the same index as server
+                if (is2D)
+                {
+                    targetNode = new Node2D();
+                }
+                else
+                {
+                    targetNode = new Node3D();
+                }
+                // Add to client scene tree
+                _clientSceneNode.AddChild(targetNode);
                 IDToNetworkIDLookup.InsertAt(objectIndex, targetNode.GetInstanceId());
             }
 
-            // Read and apply the SharedProperty data to the Node3D
+            // Read and apply the SharedProperty data to the node
             int bytesRead = SharedProperties.ReadDataForObject(
                 bufferPtr + currentOffset,
-                targetNode
+                targetNode,
+                fullMask
             );
 
             currentOffset += bytesRead;
@@ -704,10 +746,7 @@ public class NetworkManager
                 currentOffset++;
 
                 // Store the player index on our local player state
-                if (Players.Count > 0)
-                {
-                    Players[0].WhichPlayerAreWeOnServer = playerIndex;
-                }
+                ClientPlayer.WhichPlayerAreWeOnServer = playerIndex;
 
                 // Read SoundsUsed list
                 currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, SoundsUsed);
@@ -727,10 +766,7 @@ public class NetworkManager
                 currentOffset += 3;
 
                 // Store the frame index as the last acked frame for this client
-                if (Players.Count > 0)
-                {
-                    Players[0].LastAckedFrameClientReceived = frameIndex;
-                }
+                ClientPlayer.LastAckedFrameClientReceived = frameIndex;
 
                 // Read object count
                 Debug.Assert(currentOffset + sizeof(short) <= incomingBuffer.Length, "Buffer underflow reading initial object count");
@@ -768,10 +804,7 @@ public class NetworkManager
                 currentOffset += 3;
 
                 // Store the frame index as the last acked frame for this client
-                if (Players.Count > 0)
-                {
-                    Players[0].LastAckedFrameClientReceived = frameIndex;
-                }
+                ClientPlayer.LastAckedFrameClientReceived = frameIndex;
 
                 // Read object count (2 bytes)
                 short objectCount = *(short*)(bufferPtr + currentOffset);
@@ -797,8 +830,8 @@ public class NetworkManager
 
 public class HashedSlotArray
 {
-    private const int ARRAY_SIZE = 65536;
-    private const int INDEX_MASK = 0xFFFF; // For fast modulo via bitwise AND
+    private const int ARRAY_SIZE = 16384;
+    private const int INDEX_MASK = 0x3FFF; // For fast modulo via bitwise AND (14 bits, top 2 reserved for flags)
 
     private ulong[] slots = new ulong[ARRAY_SIZE];
     private bool[] occupied = new bool[ARRAY_SIZE]; // Track which slots are in use
