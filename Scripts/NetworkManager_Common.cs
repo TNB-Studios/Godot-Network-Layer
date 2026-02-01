@@ -26,12 +26,15 @@ public class NetworkManager_Common
 	protected Node _rootSceneNode;
 
 	// NOTE - On the server these need to be precached BEFORE we start the game; they cannot be changed post game start, since they are transmitted
-	// to all clients on each Client being initialized. Also, they can't ba larger than 65536 in size, but that should be enough for anyone - this is the max index size in individual SharedProperties
-	public List<string> SoundsUsed { get; set; } = new List<string>();
-	public List<string> ModelsUsed { get; set; } = new List<string>();
-	public List<string> AnimationsUsed { get; set; } = new List<string>();
-	public List<string> ParticleEffectsUsed {get; set;} = new List<string>();
+	// to all clients on each Client being initialized. Also, they can't be larger than 65536 in size, but that should be enough for anyone - this is the max index size in individual SharedProperties
+	public List<string> SoundNames { get; set; } = new List<string>();
+	public List<string> ModelNames { get; set; } = new List<string>();
+	public List<string> AnimationNames { get; set; } = new List<string>();
+	public List<string> ParticleEffectNames { get; set; } = new List<string>();
 
+	// Loaded/cached resources
+	public List<PackedScene> LoadedModels { get; set; } = new List<PackedScene>();
+	public List<AudioStream> LoadedSounds { get; set; } = new List<AudioStream>();
 
 	protected HashedSlotArray IDToNetworkIDLookup;
 
@@ -47,6 +50,52 @@ public class NetworkManager_Common
 
 
 
+
+	/// <summary>
+	/// Clears all name lists and loaded resource lists.
+	/// Call this when setting up a new game.
+	/// </summary>
+	public void ClearPrecachedResources()
+	{
+		SoundNames.Clear();
+		ModelNames.Clear();
+		AnimationNames.Clear();
+		ParticleEffectNames.Clear();
+		LoadedModels.Clear();
+		LoadedSounds.Clear();
+	}
+
+	/// <summary>
+	/// Loads all models from ModelNames into LoadedModels.
+	/// Call this after ModelNames has been populated.
+	/// </summary>
+	public void LoadModelsFromNames()
+	{
+		if (ModelNames.Count != LoadedModels.Count)
+		{
+			foreach (string modelName in ModelNames)
+			{
+				PackedScene scene = GD.Load<PackedScene>("res://" + modelName);
+				LoadedModels.Add(scene);
+			}
+		}
+	}
+
+	/// <summary>
+	/// Loads all sounds from SoundNames into LoadedSounds.
+	/// Call this after SoundNames has been populated.
+	/// </summary>
+	public void LoadSoundsFromNames()
+	{
+		if (SoundNames.Count != LoadedSounds.Count)
+		{
+			foreach (string soundName in SoundNames)
+			{
+				AudioStream sound = GD.Load<AudioStream>("res://" + soundName);
+				LoadedSounds.Add(sound);
+			}
+		}
+	}
 
 	/// <summary>
 	/// Writes a 3-byte integer to a buffer (little-endian).

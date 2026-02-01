@@ -297,26 +297,69 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kSound) != 0)
 		{
 			short playingSound;
-			if (Globals.worldManager_client.networkManager_client.SoundsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.SoundNames.Count > 255)
 			{
 				playingSound = *(short*)(buffer + offset);
 				offset += 2;
 			}
 			else
 			{
-				playingSound = buffer[offset];
+				playingSound = (sbyte)buffer[offset];
 				offset++;
 			}
-			float soundRadius = (float)*(Half*)(buffer + offset);
-			offset += 2;
-			// TODO: Apply sound to targetNode
+	
+            // right. If we get a -1, it means the either the sound is ended, in which case we do nothing, or it means Stop whatever sound IS playing, so lets do that.
+            if (playingSound == -1)
+            {
+                // Stop and remove any audio players attached to this node
+                foreach (Node child in targetNode.GetChildren())                                                                                                                                  
+                {                                                                                                                                                                                 
+                    if (child is AudioStreamPlayer audioPlayer)
+                    {
+                        audioPlayer.Stop();
+                        audioPlayer.QueueFree();
+                    }
+                    else if (child is AudioStreamPlayer3D audioPlayer3D)
+                    {
+                        audioPlayer3D.Stop();
+                        audioPlayer3D.QueueFree();
+                    }
+                }
+            }
+            else
+            {
+                // okay. If the sound index in negative - and NOT -1, then the sound is 2D, not 3D.
+                if (playingSound < -1)
+                {
+                    AudioStreamPlayer player = new AudioStreamPlayer();                                                                                                                           
+                    targetNode.AddChild(player);
+					// need to subtract -2 to the playing sound, to put it back to 0, since 2D sounds are increased by 2 to get past the -1 value
+                    player.Stream = Globals.worldManager_client.networkManager_client.LoadedSounds[(-playingSound) - 2];
+                    player.Finished += () => player.QueueFree();
+                    player.Play();
+                }
+                else
+                {
+                    float soundRadius = (float)*(Half*)(buffer + offset);
+                    offset += 2;
+
+                    AudioStreamPlayer3D player = new AudioStreamPlayer3D();
+                    targetNode.AddChild(player);
+                    player.Stream = Globals.worldManager_client.networkManager_client.LoadedSounds[playingSound];
+                    player.Finished += () => player.QueueFree();
+                    player.MaxDistance = soundRadius;
+                    player.UnitSize = soundRadius * 0.15f;  // full volume within 15% of radius
+                    player.Play();
+                    
+                }
+            }
 		}
 
 		// Model
 		if ((mask & (short)SharedObjectValueSetMask.kModel) != 0)
 		{
 			short currentModel;
-			if (Globals.worldManager_client.networkManager_client.ModelsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.ModelNames.Count > 255)
 			{
 				currentModel = *(short*)(buffer + offset);
 				offset += 2;
@@ -335,7 +378,7 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kAnimation) != 0)
 		{
 			short currentAnimation;
-			if (Globals.worldManager_client.networkManager_client.AnimationsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.AnimationNames.Count > 255)
 			{
 				currentAnimation = *(short*)(buffer + offset);
 				offset += 2;
@@ -353,7 +396,7 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kParticleEffect) != 0)
 		{
 			short particleEffect;
-			if (Globals.worldManager_client.networkManager_client.ParticleEffectsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.ParticleEffectNames.Count > 255)
 			{
 				particleEffect = *(short*)(buffer + offset);
 				offset += 2;
@@ -549,7 +592,7 @@ public unsafe class SharedProperties
 			if (sendSound)
 			{
 				SetAddedObjectToBuffer(SharedObjectValueSetMask.kSound);
-				if (Globals.worldManager_server.networkManager_server.SoundsUsed.Count > 255)
+				if (Globals.worldManager_server.networkManager_server.SoundNames.Count > 255)
 				{
 					*(short*)(currentBuffer + currentBufferOffset) = PlayingSound;
 					currentBufferOffset += 2;
@@ -559,8 +602,12 @@ public unsafe class SharedProperties
 					currentBuffer[currentBufferOffset] = (byte)PlayingSound;
 					currentBufferOffset++;
 				}
-				*(Half*)(currentBuffer + currentBufferOffset) = (Half)SoundRadius;
-				currentBufferOffset += sizeof(Half);
+				// only send radius if we are playing a 3D sound, ie the PlayingSound value is not > 0
+				if (PlayingSound > -1)
+				{
+					*(Half*)(currentBuffer + currentBufferOffset) = (Half)SoundRadius;
+					currentBufferOffset += sizeof(Half);
+				}
 			}
 		}
 		if (oldSharedProperties == null || CurrentModel != oldSharedProperties.CurrentModel)
@@ -576,7 +623,7 @@ public unsafe class SharedProperties
 			if (sendModel)
 			{
 				SetAddedObjectToBuffer(SharedObjectValueSetMask.kModel);
-				if (Globals.worldManager_server.networkManager_server.ModelsUsed.Count > 255)
+				if (Globals.worldManager_server.networkManager_server.ModelNames.Count > 255)
 				{
 					*(short*)(currentBuffer + currentBufferOffset) = CurrentModel;
 					currentBufferOffset += 2;
@@ -601,7 +648,7 @@ public unsafe class SharedProperties
 			if (sendAnimation)
 			{
 				SetAddedObjectToBuffer(SharedObjectValueSetMask.kAnimation);
-				if (Globals.worldManager_server.networkManager_server.AnimationsUsed.Count > 255)
+				if (Globals.worldManager_server.networkManager_server.AnimationNames.Count > 255)
 				{
 					*(short*)(currentBuffer + currentBufferOffset) = CurrentAnimation;
 					currentBufferOffset += 2;
@@ -626,7 +673,7 @@ public unsafe class SharedProperties
 			if (sendParticleEffect)
 			{
 				SetAddedObjectToBuffer(SharedObjectValueSetMask.kParticleEffect);
-				if (Globals.worldManager_server.networkManager_server.ParticleEffectsUsed.Count > 255)
+				if (Globals.worldManager_server.networkManager_server.ParticleEffectNames.Count > 255)
 				{
 					*(short*)(currentBuffer + currentBufferOffset) = ParticleEffect;
 					currentBufferOffset += 2;
@@ -828,18 +875,18 @@ public unsafe class SharedProperties
 
 		if ((mask & (short)SharedObjectValueSetMask.kSound) != 0)
 		{
-			size += (Globals.networkManager.SoundsUsed.Count > 255) ? 2 : 1;  // Sound index
+			size += (Globals.networkManager.SoundNames.Count > 255) ? 2 : 1;  // Sound index
 			size += 2;  // SoundRadius as Half
 		}
 
 		if ((mask & (short)SharedObjectValueSetMask.kModel) != 0)
-			size += (Globals.networkManager.ModelsUsed.Count > 255) ? 2 : 1;
+			size += (Globals.networkManager.ModelNames.Count > 255) ? 2 : 1;
 
 		if ((mask & (short)SharedObjectValueSetMask.kAnimation) != 0)
-			size += (Globals.networkManager.AnimationsUsed.Count > 255) ? 2 : 1;
+			size += (Globals.networkManager.AnimationNames.Count > 255) ? 2 : 1;
 
 		if ((mask & (short)SharedObjectValueSetMask.kParticleEffect) != 0)
-			size += (Globals.networkManager.ParticleEffectsUsed.Count > 255) ? 2 : 1;
+			size += (Globals.networkManager.ParticleEffectNames.Count > 255) ? 2 : 1;
 
 		return size;
 	}

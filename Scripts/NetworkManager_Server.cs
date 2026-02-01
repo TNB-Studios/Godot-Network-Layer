@@ -34,6 +34,7 @@ public class NetworkManager_Server : NetworkManager_Common
 
     public void RemoveNodefromNetworkNodeList(Node nodeToRemove)
     {
+		nodeToRemove.RemoveFromGroup(NETWORKED_GROUP_NAME);
         short indexOfObjectBeingRemoved = IDToNetworkIDLookup.Find(nodeToRemove.GetInstanceId());
         Node3DIDsDeletedThisFrame.Add(indexOfObjectBeingRemoved);
         IDToNetworkIDLookup.RemoveAt(indexOfObjectBeingRemoved);
@@ -59,28 +60,28 @@ public class NetworkManager_Server : NetworkManager_Common
 		createPlayerObjectCallback = callback;
 	}
 
-	public void AddPrecacheAnimationUsed_Server(string animationName)
+	public void AddPrecacheAnimationName_Server(string animationName)
 	{
-		Debug.Assert(!gameStarted, "Game Started. Can't be adding Animations used at this point!!");
-		AnimationsUsed.Add(animationName);
+		Debug.Assert(!gameStarted, "Game Started. Can't be adding Animations at this point!!");
+		AnimationNames.Add(animationName);
 	}
 
-	public void AddPrecacheModelsUsed_Server(string modelName)
+	public void AddPrecacheModelName_Server(string modelName)
 	{
-		Debug.Assert(!gameStarted,"Game Started. Can't be adding Models used at this point!!");
-		ModelsUsed.Add(modelName);
+		Debug.Assert(!gameStarted, "Game Started. Can't be adding Models at this point!!");
+		ModelNames.Add(modelName);
 	}
 
-	public void AddPrecacheSoundsUsed_Server(string soundsName)
+	public void AddPrecacheSoundName_Server(string soundName)
 	{
-		Debug.Assert(!gameStarted,"Game Started. Can't be adding Sounds used at this point!!");
-		SoundsUsed.Add(soundsName);
+		Debug.Assert(!gameStarted, "Game Started. Can't be adding Sounds at this point!!");
+		SoundNames.Add(soundName);
 	}
 
-	public void AddPrecacheParticleEffectsUsed_Server(string soundsName)
+	public void AddPrecacheParticleEffectName_Server(string particleEffectName)
 	{
-		Debug.Assert(!gameStarted,"Game Started. Can't be adding Particle Effects used at this point!!");
-		SoundsUsed.Add(soundsName);
+		Debug.Assert(!gameStarted, "Game Started. Can't be adding Particle Effects at this point!!");
+		ParticleEffectNames.Add(particleEffectName);
 	}
 
 	public void InitNewGame_Server()
@@ -91,8 +92,13 @@ public class NetworkManager_Server : NetworkManager_Common
 
 	public void NewGameSetup_Server(int playerCount, int playerOnServer = -1)
 	{
-		// note, not reseting the arrays of animations, models and sounds used, since this shouldn't change game to game.
-		Players = new List<NetworkingPlayerState>();
+        // note, not reseting the arrays of animations, models and sounds used, since this shouldn't change game to game.
+        // but we do need to reload everything.
+        // note, this has to happen AFTER we've set all the names and before any of them are actually used.
+        LoadModelsFromNames();
+        LoadSoundsFromNames();
+
+        Players = new List<NetworkingPlayerState>();
 		Frames = new List<FrameState>();
 
 		// Create a PlayerState for each player
@@ -154,17 +160,17 @@ public class NetworkManager_Server : NetworkManager_Common
 				bufferPtr[currentOffset] = 0;
 				currentOffset++;
 
-				// Write SoundsUsed list
-				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, SoundsUsed);
+				// Write SoundNames list
+				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, SoundNames);
 
-				// Write ModelsUsed list
-				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, ModelsUsed);
+				// Write ModelNames list
+				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, ModelNames);
 
-				// Write AnimationsUsed list
-				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, AnimationsUsed);
+				// Write AnimationNames list
+				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, AnimationNames);
 
-				// Write ParticleEffectsUsed list
-				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, ParticleEffectsUsed);
+				// Write ParticleEffectNames list
+				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, ParticleEffectNames);
 
 				// Create initial FrameState from all current objects
 				FrameState initialFrameState = CreateFrameStateFromCurrentObjects_Server(FrameCount);
@@ -288,6 +294,7 @@ public class NetworkManager_Server : NetworkManager_Common
 				newSharedProperty.Scale = node3D.Scale;
 				newSharedProperty.Orientation = node3D.Rotation;
 				newSharedProperty.ObjectIndex = IDToNetworkIDLookup.Find(sharedObject.GetInstanceId());
+				Debug.Assert(newSharedProperty.ObjectIndex != -1, "Bad Object Index!!");
 
 				// Find attached model by checking children for scene file paths
 				newSharedProperty.CurrentModel = -1;
@@ -298,7 +305,7 @@ public class NetworkManager_Server : NetworkManager_Common
 					{
 						// Remove "res://" prefix if present for comparison
 						string relativePath = scenePath.StartsWith("res://") ? scenePath.Substring(6) : scenePath;
-						int modelIndex = ModelsUsed.IndexOf(relativePath);
+						int modelIndex = ModelNames.IndexOf(relativePath);
 						if (modelIndex >= 0)
 						{
 							newSharedProperty.CurrentModel = (short)modelIndex;
@@ -333,15 +340,13 @@ public class NetworkManager_Server : NetworkManager_Common
 				if (node3D is NetworkedNode3D networkedNode3D)
 				{
 					newSharedProperty.Velocity = networkedNode3D.Velocity;
-				}
-				else if (node3D is CharacterBody3D characterBody)
-				{
-					newSharedProperty.Velocity = characterBody.Velocity;
-				}
-				else if (node3D is RigidBody3D rigidBody)
-				{
-					newSharedProperty.Velocity = rigidBody.LinearVelocity;
-				}
+					newSharedProperty.PlayingSound = networkedNode3D.SoundToPlay;
+                    newSharedProperty.SoundRadius = networkedNode3D.SoundRadius;
+					if (networkedNode3D.SoundIs2D)
+					{
+						newSharedProperty.PlayingSound = (short)(-newSharedProperty.PlayingSound - 2);
+					}
+                }
 				else
 				{
 					newSharedProperty.Velocity = Vector3.Zero;
@@ -360,15 +365,8 @@ public class NetworkManager_Server : NetworkManager_Common
 				if (node2D is NetworkedNode2D networkedNode2D)
 				{
 					newSharedProperty.Velocity = new Vector3(networkedNode2D.Velocity.X, networkedNode2D.Velocity.Y, 0);
-				}
-				else if (node2D is CharacterBody2D characterBody2D)
-				{
-					newSharedProperty.Velocity = new Vector3(characterBody2D.Velocity.X, characterBody2D.Velocity.Y, 0);
-				}
-				else if (node2D is RigidBody2D rigidBody2D)
-				{
-					newSharedProperty.Velocity = new Vector3(rigidBody2D.LinearVelocity.X, rigidBody2D.LinearVelocity.Y, 0);
-				}
+                    newSharedProperty.PlayingSound = networkedNode2D.SoundToPlay;
+                }
 				else
 				{
 					newSharedProperty.Velocity = Vector3.Zero;

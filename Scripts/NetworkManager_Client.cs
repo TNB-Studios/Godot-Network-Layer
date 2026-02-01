@@ -104,9 +104,9 @@ public class NetworkManager_Client : NetworkManager_Common
 	/// </summary>
 	public void ApplyModelToNodeDirect(Node targetNode, short modelIndex)
 	{
-		if (modelIndex >= 0 && modelIndex < ModelsUsed.Count)
+		if (modelIndex >= 0 && modelIndex < ModelNames.Count)
 		{
-			string modelPath = "res://" + ModelsUsed[modelIndex];
+			string modelPath = "res://" + ModelNames[modelIndex];
 
 			// Check if we already have this model attached
 			bool modelAlreadyAttached = false;
@@ -130,13 +130,9 @@ public class NetworkManager_Client : NetworkManager_Common
 					}
 				}
 
-				// Load and attach the new model
-				PackedScene modelScene = GD.Load<PackedScene>(modelPath);
-				if (modelScene != null)
-				{
-					Node3D modelInstance = modelScene.Instantiate<Node3D>();
-					targetNode.AddChild(modelInstance);
-				}
+				// find precached model and attach the new model
+				Node3D modelInstance = LoadedModels[modelIndex].Instantiate<Node3D>();
+				targetNode.AddChild(modelInstance);
 			}
 		}
 	}
@@ -389,17 +385,17 @@ public class NetworkManager_Client : NetworkManager_Common
 				// Store the player index on our local player state
 				ClientPlayer.WhichPlayerAreWeOnServer = playerIndex;
 
-				// Read SoundsUsed list
-				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, SoundsUsed);
+				// Read SoundNames list
+				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, SoundNames);
 
-				// Read ModelsUsed list
-				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, ModelsUsed);
+				// Read ModelNames list
+				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, ModelNames);
 
-				// Read AnimationsUsed list
-				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, AnimationsUsed);
+				// Read AnimationNames list
+				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, AnimationNames);
 
-				// Read ParticleEffectsUsed list
-				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, ParticleEffectsUsed);
+				// Read ParticleEffectNames list
+				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, ParticleEffectNames);
 
 				// Read frame index (3 bytes)
 				Debug.Assert(currentOffset + 3 <= incomingBuffer.Length, "Buffer underflow reading initial frame index");
@@ -424,6 +420,11 @@ public class NetworkManager_Client : NetworkManager_Common
 				currentOffset += bytesRead;
 			}
 		}
+
+		// new precache all the list of sounds and models we need 
+		// TODO - add particle Effects and Animations to be loaded
+		LoadModelsFromNames();
+		LoadSoundsFromNames();
 
 		FramesFromServerCount = 1; // We've received the initial state
 		ClientPlayer.ReadyForGame = true;
