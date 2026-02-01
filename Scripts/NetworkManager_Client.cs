@@ -425,6 +425,7 @@ public class NetworkManager_Client : NetworkManager_Common
 		// TODO - add particle Effects and Animations to be loaded
 		LoadModelsFromNames();
 		LoadSoundsFromNames();
+		LoadParticleEffectsFromNames();
 
 		FramesFromServerCount = 1; // We've received the initial state
 		ClientPlayer.ReadyForGame = true;

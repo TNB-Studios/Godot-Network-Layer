@@ -35,6 +35,7 @@ public class NetworkManager_Common
 	// Loaded/cached resources
 	public List<PackedScene> LoadedModels { get; set; } = new List<PackedScene>();
 	public List<AudioStream> LoadedSounds { get; set; } = new List<AudioStream>();
+	public List<PackedScene> LoadedParticleEffects { get; set; } = new List<PackedScene>();
 
 	protected HashedSlotArray IDToNetworkIDLookup;
 
@@ -63,6 +64,7 @@ public class NetworkManager_Common
 		ParticleEffectNames.Clear();
 		LoadedModels.Clear();
 		LoadedSounds.Clear();
+		LoadedParticleEffects.Clear();
 	}
 
 	/// <summary>
@@ -93,6 +95,22 @@ public class NetworkManager_Common
 			{
 				AudioStream sound = GD.Load<AudioStream>("res://" + soundName);
 				LoadedSounds.Add(sound);
+			}
+		}
+	}
+
+	/// <summary>
+	/// Loads all particle effects from ParticleEffectNames into LoadedParticleEffects.
+	/// Call this after ParticleEffectNames has been populated.
+	/// </summary>
+	public void LoadParticleEffectsFromNames()
+	{
+		if (ParticleEffectNames.Count != LoadedParticleEffects.Count)
+		{
+			foreach (string particleEffectName in ParticleEffectNames)
+			{
+				PackedScene scene = GD.Load<PackedScene>("res://" + particleEffectName);
+				LoadedParticleEffects.Add(scene);
 			}
 		}
 	}

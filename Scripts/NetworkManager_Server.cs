@@ -97,6 +97,7 @@ public class NetworkManager_Server : NetworkManager_Common
         // note, this has to happen AFTER we've set all the names and before any of them are actually used.
         LoadModelsFromNames();
         LoadSoundsFromNames();
+        LoadParticleEffectsFromNames();
 
         Players = new List<NetworkingPlayerState>();
 		Frames = new List<FrameState>();
