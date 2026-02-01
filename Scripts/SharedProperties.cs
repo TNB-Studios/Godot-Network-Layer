@@ -216,20 +216,10 @@ public unsafe class SharedProperties
 		Node3D node3D = targetNode as Node3D;
 		Node2D node2D = targetNode as Node2D;
 
-		// Debug: Log what properties are being updated
-		string propsUpdated = "";
-		if ((mask & (short)SharedObjectValueSetMask.kPosition) != 0) propsUpdated += "Pos ";
-		if ((mask & (short)SharedObjectValueSetMask.kOrientation) != 0) propsUpdated += "Ori ";
-		if ((mask & (short)SharedObjectValueSetMask.kScale) != 0) propsUpdated += "Scl ";
-		if ((mask & (short)SharedObjectValueSetMask.kVelocity) != 0) propsUpdated += "Vel ";
-		if ((mask & (short)SharedObjectValueSetMask.kModel) != 0) propsUpdated += "Mdl ";
-		GD.Print($"[Client] ReadDataForObject: {targetNode.Name} mask=0x{mask:X3} props=[{propsUpdated}]");
-
         // Velocity
         if ((mask & (short)SharedObjectValueSetMask.kVelocity) != 0)
         {
             Vector3 velocity = ReadVectorByCompression(buffer, ref offset, VelocityCompression, is2D);
-            GD.Print($"  Velocity: {velocity}");
             if (targetNode is NetworkedNode3D networkedNode3D)
             {
                 networkedNode3D.Velocity = velocity;
@@ -263,20 +253,17 @@ public unsafe class SharedProperties
 					Vector3 pos = node3D.GlobalPosition;
 					pos.Y = y;
 					node3D.GlobalPosition = pos;
-					GD.Print($"  Position (Y only): {pos}");
 				}
 				else if (node2D != null)
 				{
 					Vector2 pos = node2D.GlobalPosition;
 					pos.Y = y;
 					node2D.GlobalPosition = pos;
-					GD.Print($"  Position (Y only): {pos}");
 				}
 			}
 			else
 			{
 				Vector3 position = ReadVectorByCompression(buffer, ref offset, PositionCompression, is2D);
-				GD.Print($"  Position: {position}");
 				if (node3D != null)
 					node3D.GlobalPosition = position;
 				else if (node2D != null)
@@ -288,7 +275,6 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kOrientation) != 0)
 		{
 			Vector3 orientation = ReadVectorByCompression(buffer, ref offset, OrientationCompression, is2D);
-			GD.Print($"  Orientation: {orientation}");
 			if (node3D != null)
 				node3D.Rotation = orientation;
 			else if (node2D != null)
@@ -299,7 +285,6 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kScale) != 0)
 		{
 			Vector3 scale = ReadVectorByCompression(buffer, ref offset, ScaleCompression, is2D);
-			GD.Print($"  Scale: {scale}");
 			if (node3D != null)
 				node3D.Scale = scale;
 			else if (node2D != null)

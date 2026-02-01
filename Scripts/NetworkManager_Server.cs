@@ -26,13 +26,13 @@ public class NetworkManager_Server : NetworkManager_Common
 
 	}
 
-    public void AddNode3DToNetworkedNodeList(Node3D newNode)
+    public void AddNodeToNetworkedNodeList(Node newNode)
     {
         newNode.AddToGroup(NETWORKED_GROUP_NAME);
         IDToNetworkIDLookup.Insert(newNode.GetInstanceId());
     }
 
-    public void RemoveNode3DfromNetworkNodeList(Node3D nodeToRemove)
+    public void RemoveNodefromNetworkNodeList(Node nodeToRemove)
     {
         short indexOfObjectBeingRemoved = IDToNetworkIDLookup.Find(nodeToRemove.GetInstanceId());
         Node3DIDsDeletedThisFrame.Add(indexOfObjectBeingRemoved);

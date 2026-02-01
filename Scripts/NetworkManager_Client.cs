@@ -21,6 +21,10 @@ public class NetworkManager_Client : NetworkManager_Common
 	public delegate void SyncNodeProperties(Node node);
 	private SyncNodeProperties syncNodePropertiesCallback = null;
 
+	// Callback delegate for deleting a node (for multi-pass rendering)
+	public delegate void DeleteNodeFromClientScene(Node node);
+	private DeleteNodeFromClientScene deleteNodeFromClientSceneCallback = null;
+
 	public NetworkManager_Client(Node rootSceneNode) : base(rootSceneNode)
 	{
 
@@ -65,6 +69,16 @@ public class NetworkManager_Client : NetworkManager_Common
 	public void RegisterSyncNodePropertiesCallback(SyncNodeProperties callback)
 	{
 		syncNodePropertiesCallback = callback;
+	}
+
+	/// <summary>
+	/// Registers a callback to delete a node from the client scene.
+	/// Used for multi-pass rendering where nodes need to be removed from multiple viewports.
+	/// Client-side only.
+	/// </summary>
+	public void RegisterDeleteNodeFromClientSceneCallback(DeleteNodeFromClientScene callback)
+	{
+		deleteNodeFromClientSceneCallback = callback;
 	}
 
 	/// <summary>
@@ -138,7 +152,7 @@ public class NetworkManager_Client : NetworkManager_Common
 		}
 	}
 
-	public void Client_ResetNetworking(bool isOnServer = false)
+	public void Client_ResetNetworking(bool isOnServer)
 	{
 		// add a specific player for this player
 		ClientPlayer = new NetworkingPlayerState();
@@ -329,10 +343,17 @@ public class NetworkManager_Client : NetworkManager_Common
 			if (IDToNetworkIDLookup.IsOccupied(deletedNodeID))
 			{
 				ulong instanceId = IDToNetworkIDLookup.GetAt(deletedNodeID);
-				Node3D nodeToDelete = GodotObject.InstanceFromId(instanceId) as Node3D;
+				Node nodeToDelete = GodotObject.InstanceFromId(instanceId) as Node;
 				if (nodeToDelete != null)
 				{
-					nodeToDelete.QueueFree();
+					if (deleteNodeFromClientSceneCallback != null)
+					{
+						deleteNodeFromClientSceneCallback(nodeToDelete);
+					}
+					else
+					{
+						nodeToDelete.QueueFree();
+					}
 				}
 				IDToNetworkIDLookup.RemoveAt(deletedNodeID);
 			}
@@ -405,6 +426,7 @@ public class NetworkManager_Client : NetworkManager_Common
 		}
 
 		FramesFromServerCount = 1; // We've received the initial state
+		ClientPlayer.ReadyForGame = true;
 
 		// Send acknowledgment to server that we received the initial game state
 		SendInitiatingTcpAck();
