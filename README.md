@@ -1,8 +1,18 @@
-Godot 4.5 Quake 3 like client/server networking architecture.
+Godot 4.5 C# Quake 3 like client/server networking architecture.
 
 This is designed very much like how Quake III's networking works, since Godot doesn't have anything like this built in.
 
 The code will come down as a directory called Networking (I have it set up as a SubModule in my test harness app). You don't have to, or you can if you want. Your choice.
+
+The tl;dr version is this.
+
+* It's a client/server architecture, where one machine running the game is deemed the server. Other players will connect to that machine, and that's the machine that is actively playing the game.
+* It can handle about 150 or so objects updating per frame, but can handle 16000 objects in scene.
+* You can attach models, play animations, play sounds, play particle effects on any object added to the scene that you inform the networking system exists.
+* It's designed for fast moving FPS/Space Sim etc kind of games, without a million objects. You should not be using this for RTS like games, or anything with a LOT of enemies (so no Rogue Likes!)
+* It's intended for self hosting games, where the player is also the server. Not intended for backend servers, although this does have the capability to run in headless mode.
+* You will need something else for account handling and lobbies - this is one thing that this code doesn't handle. It expects you to get IP addresses for all players yourself, so get used to the idea of using Braincloud or Playfab or some such for that.
+
 
 So how does Quake III's networking work?
 
@@ -56,20 +66,26 @@ This is very top level understanding of what happens, but there's a LOT more det
 
 Things to know.
 
-You have a limit of 16384 Nodes that the networking system can know about and handle. Realistically, you aren't going to be able to update more than about 150 objects per frame anyway, because you'll burst the UDP packet size, so 16384 nodes is way overkill.
+* You have a limit of 16384 Nodes that the networking system can know about and handle. Realistically, you aren't going to be able to update more than about 150 objects per frame anyway, because you'll burst the UDP packet size, so 16384 nodes is way overkill.
 The original Quake III only had 1024, so yeah.
 
-We do a LOT of compression to only send that which has changed. We check position and velocity (which is not a default value in Godot, - no idea why - so we added it as an inherited class of Node3D and Node2D so it is there now, with the functionality you'd expect.
+* We do a LOT of compression to only send that which has changed. We check position and velocity (which is not a default value in Godot, - no idea why - so we added it as an inherited class of Node3D and Node2D so it is there now, with the functionality you'd expect.
 
 So when you are creating new Objects inside of your game, you need to be creating NetworkNode3D and NetworkNode2D, since those classes have some extra stuff in them that the networking needs.
 
-Another aspect of compression is the fact that if you create a new object and give it a velocity, while the networking sends all of the object details when it's created, it doesn't send any updates for position after that since the client knows where it was when it was created, and what the velocity was and will update the position itself.
+* Another aspect of compression is the fact that if you create a new object and give it a velocity, while the networking sends all of the object details when it's created, it doesn't send any updates for position after that since the client knows where it was when it was created, and what the velocity was and will update the position itself.
 It doesn't need to send the position per frame because it's updating it itself anyway. If velocity changes, it will resend position just to correct any visual drift, but generally it doesn't need much.
 
 There are other compressions we use - only sending 16 bit floats instead of 32 bit floats. In some cases, only sending a byte that becomes one of 160 different direction vectors. While that sounds like not a lot, it's generally good enough for lots of fast moving things on the client, where an approximate representation of direction is good enough.
 
-When it comes to sounds being played, note, you can only play one sound on one node in one frame, in terms of the networking handling it. That said, there's nothing to stop you from playing another sound one frame later; the networking will handle that just fine and you'll end up with multiple sounds playing on your node object.
+* When it comes to sounds being played, note, you can only play one sound on one node in one frame, in terms of the networking handling it. That said, there's nothing to stop you from playing another sound one frame later; the networking will handle that just fine and you'll end up with multiple sounds playing on your node object.
 
-The server can denote if the sound being played on a NetworkingNode is 3D or not and if it is 3D, it will move with the object in the world, so you get proper spatialization. You can kill a sound any time while it's still playing by just resetting it's sound index to -1 on the NetworkNode3d or NetworkNode2D.
+* The server can denote if the sound being played on a NetworkingNode is 3D or not and if it is 3D, it will move with the object in the world, so you get proper spatialization. You can kill a sound any time while it's still playing by just resetting it's sound index to -1 on the NetworkNode3d or NetworkNode2D.
 Looping sounds are handled at the sound definition level.
 Also note, if you destroy an object on the server and there is a sound playging on it, it'll kill that sound on the client too.
+
+* When new nodes are added to the NetworkManager_Server,they need to be at the root of the scene. The networking does not cope with complicated hierarchies of nodes, because trying to transmit "This object owns that object, is the parent of this other object" will absolutely KILL your networking.
+So all new nodes go in at the root (or a under a specific node) and that's how they end up on the client side.
+
+* This is not multithreaded. The reason for that is that both the Server and the client both need to use the Node Tree (physics, organization, etc) and the Node Tree in Godot is not thread safe. If it was, we could easily thread this.
+As it is, because it's not thread safe, both the client and the server run on the same thread. Not ideal, but you shouldn't be trying to make Call of Duty visuals using Godot anyway.
