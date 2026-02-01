@@ -10,6 +10,7 @@ public class NetworkingPlayerState
 
     public static readonly int MAX_UDP_PACKET_SIZE = 1400;
     public byte[] CurrentUDPPlayerPacket = new byte[MAX_UDP_PACKET_SIZE];
+    public int CurrentUDPPlayerPacketSize = 0;
 
     public int WhichPlayerAreWeOnServer  { get; set; }= 0;
 
@@ -17,6 +18,8 @@ public class NetworkingPlayerState
     public static readonly int MAX_INPUT_PACKET_SIZE = 1024;
     private byte[] inputPacketBuffer = new byte[MAX_INPUT_PACKET_SIZE];
     public int inputSequenceNumber = 0;
+
+    public bool IsOnServer = false;
 
     static readonly float[] FOV = {90.0f, 70.0f};
 
@@ -26,6 +29,11 @@ public class NetworkingPlayerState
         Position = Vector3.Zero;
         Orientation = Vector3.Zero;
         Velocity = Vector3.Zero;
+    }
+
+    public void TransmitUDPFromServerToClient()
+    {
+        
     }
 
     /// <summary>

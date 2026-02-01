@@ -1,7 +1,5 @@
 using Godot;
 using System;
-using System.Linq.Expressions;
-using System.Runtime.CompilerServices;
 
 public unsafe class SharedProperties
 {
@@ -238,13 +236,13 @@ public unsafe class SharedProperties
 
 				if (node3D != null)
 				{
-					var pos = node3D.GlobalPosition;
+					Vector3 pos = node3D.GlobalPosition;
 					pos.Y = y;
 					node3D.GlobalPosition = pos;
 				}
 				else if (node2D != null)
 				{
-					var pos = node2D.GlobalPosition;
+					Vector2 pos = node2D.GlobalPosition;
 					pos.Y = y;
 					node2D.GlobalPosition = pos;
 				}
@@ -290,7 +288,7 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kSound) != 0)
 		{
 			short playingSound;
-			if (Globals.networkManager.SoundsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.SoundsUsed.Count > 255)
 			{
 				playingSound = *(short*)(buffer + offset);
 				offset += 2;
@@ -309,7 +307,7 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kModel) != 0)
 		{
 			short currentModel;
-			if (Globals.networkManager.ModelsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.ModelsUsed.Count > 255)
 			{
 				currentModel = *(short*)(buffer + offset);
 				offset += 2;
@@ -319,14 +317,16 @@ public unsafe class SharedProperties
 				currentModel = buffer[offset];
 				offset++;
 			}
-			// TODO: Apply model to targetNode
+
+			// Apply model via callback (handles multi-pass rendering)
+			Globals.worldManager_client.networkManager_client.ApplyModelToNode(targetNode, currentModel);
 		}
 
 		// Animation
 		if ((mask & (short)SharedObjectValueSetMask.kAnimation) != 0)
 		{
 			short currentAnimation;
-			if (Globals.networkManager.AnimationsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.AnimationsUsed.Count > 255)
 			{
 				currentAnimation = *(short*)(buffer + offset);
 				offset += 2;
@@ -336,14 +336,15 @@ public unsafe class SharedProperties
 				currentAnimation = buffer[offset];
 				offset++;
 			}
-			// TODO: Apply animation to targetNode
+
+			// TODO: Apply animation to targetNode (will be synced to depth viewport via SyncNodeProperties)
 		}
 
 		// Particle Effect
 		if ((mask & (short)SharedObjectValueSetMask.kParticleEffect) != 0)
 		{
 			short particleEffect;
-			if (Globals.networkManager.ParticleEffectsUsed.Count > 255)
+			if (Globals.worldManager_client.networkManager_client.ParticleEffectsUsed.Count > 255)
 			{
 				particleEffect = *(short*)(buffer + offset);
 				offset += 2;
@@ -353,8 +354,12 @@ public unsafe class SharedProperties
 				particleEffect = buffer[offset];
 				offset++;
 			}
-			// TODO: Apply particle effect to targetNode
+
+			// TODO: Apply particle effect to targetNode (will be synced to depth viewport via SyncNodeProperties)
 		}
+
+		// Sync all node properties (position, rotation, scale) to other viewports
+		Globals.worldManager_client.networkManager_client.SyncNodePropertiesToViewports(targetNode);
 
 		return offset;
 	}
@@ -403,125 +408,213 @@ public unsafe class SharedProperties
 		// Note: Position and Scale never use compressed format, only Full or Half
 		if (oldSharedProperties == null || CompareVector(Position, oldSharedProperties.Position))
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kPosition);
-			if (onlySendYPos)
+			bool sendPosition = true;
+			if (oldSharedProperties == null)
 			{
-				// Only send Y component
-				if (PositionCompression == SetCompressionOnVectors.kHalf)
-					CopyHalfToBuffer(Position.Y);
-				else
-					CopyFloatToBuffer(Position.Y);
+				if (Position == Vector3.Zero)
+				{
+					sendPosition = false;
+				}
 			}
-			else if (PositionCompression == SetCompressionOnVectors.kHalf)
+			if (sendPosition)
 			{
-				CopyVectorToBufferAsHalf(Position, is2D);
-			}
-			else  // kFull (default for position)
-			{
-				CopyVectorToBuffer(Position, is2D);
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kPosition);
+				if (onlySendYPos)
+				{
+					// Only send Y component
+					if (PositionCompression == SetCompressionOnVectors.kHalf)
+						CopyHalfToBuffer(Position.Y);
+					else
+						CopyFloatToBuffer(Position.Y);
+				}
+				else if (PositionCompression == SetCompressionOnVectors.kHalf)
+				{
+					CopyVectorToBufferAsHalf(Position, is2D);
+				}
+				else  // kFull (default for position)
+				{
+					CopyVectorToBuffer(Position, is2D);
+				}
 			}
 		}
 		if (oldSharedProperties == null || CompareVector(Orientation, oldSharedProperties.Orientation))
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kOrientation);
-			if (OrientationCompression == SetCompressionOnVectors.kFull)
+			bool sendOrientation = true;
+			if (oldSharedProperties == null)
 			{
-				CopyVectorToBuffer(Orientation, is2D);
+				if (Orientation == Vector3.Zero)
+				{
+					sendOrientation = false;
+				}
 			}
-			else if (OrientationCompression == SetCompressionOnVectors.kHalf)
+			if (sendOrientation)
 			{
-				CopyVectorToBufferAsHalf(Orientation, is2D);
-			}
-			else
-			{
-				CopyVectorToBufferCompressed(Orientation, is2D);
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kOrientation);
+				if (OrientationCompression == SetCompressionOnVectors.kFull)
+				{
+					CopyVectorToBuffer(Orientation, is2D);
+				}
+				else if (OrientationCompression == SetCompressionOnVectors.kHalf)
+				{
+					CopyVectorToBufferAsHalf(Orientation, is2D);
+				}
+				else
+				{
+					CopyVectorToBufferCompressed(Orientation, is2D);
+				}
 			}
 		}
 		// Note: Scale never uses compressed format, only Full or Half
 		if (oldSharedProperties == null || CompareVector(Scale, oldSharedProperties.Scale))
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kScale);
-			if (ScaleCompression == SetCompressionOnVectors.kHalf)
+			bool sendScale = true;
+			if (oldSharedProperties == null)
 			{
-				CopyVectorToBufferAsHalf(Scale, is2D);
+				if (Scale == Vector3.One)
+				{
+					sendScale = false;
+				}
 			}
-			else  // kFull (default for scale)
+			if (sendScale)
 			{
-				CopyVectorToBuffer(Scale, is2D);
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kScale);
+				if (ScaleCompression == SetCompressionOnVectors.kHalf)
+				{
+					CopyVectorToBufferAsHalf(Scale, is2D);
+				}
+				else  // kFull (default for scale)
+				{
+					CopyVectorToBuffer(Scale, is2D);
+				}
 			}
 		}
 		if (oldSharedProperties == null || CompareVector(Velocity, oldSharedProperties.Velocity))
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kVelocity);
-			if (VelocityCompression == SetCompressionOnVectors.kFull)
+			bool sendVelocity = true;
+			if (oldSharedProperties == null)
 			{
-				CopyVectorToBuffer(Velocity, is2D);
+				if (Velocity == Vector3.Zero)
+				{
+					sendVelocity = false;
+				}
 			}
-			else if (VelocityCompression == SetCompressionOnVectors.kHalf)
+			if (sendVelocity)
 			{
-				CopyVectorToBufferAsHalf(Velocity, is2D);
-			}
-			else
-			{
-				CopyVectorToBufferCompressed(Velocity, is2D);
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kVelocity);
+				if (VelocityCompression == SetCompressionOnVectors.kFull)
+				{
+					CopyVectorToBuffer(Velocity, is2D);
+				}
+				else if (VelocityCompression == SetCompressionOnVectors.kHalf)
+				{
+					CopyVectorToBufferAsHalf(Velocity, is2D);
+				}
+				else
+				{
+					CopyVectorToBufferCompressed(Velocity, is2D);
+				}
 			}
 		}
 		if (oldSharedProperties == null || PlayingSound != oldSharedProperties.PlayingSound)
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kSound);
-			if (Globals.networkManager.SoundsUsed.Count > 255)
+			bool sendSound = true;
+			if (oldSharedProperties == null)
 			{
-				*(short*)(currentBuffer + currentBufferOffset) = PlayingSound;
-				currentBufferOffset += 2;
+				if (PlayingSound == -1)
+				{
+					sendSound = false;
+				}
 			}
-			else
+			if (sendSound)
 			{
-				currentBuffer[currentBufferOffset] = (byte)PlayingSound;
-				currentBufferOffset++;
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kSound);
+				if (Globals.worldManager_server.networkManager_server.SoundsUsed.Count > 255)
+				{
+					*(short*)(currentBuffer + currentBufferOffset) = PlayingSound;
+					currentBufferOffset += 2;
+				}
+				else
+				{
+					currentBuffer[currentBufferOffset] = (byte)PlayingSound;
+					currentBufferOffset++;
+				}
+				*(Half*)(currentBuffer + currentBufferOffset) = (Half)SoundRadius;
+				currentBufferOffset += sizeof(Half);
 			}
-			*(Half*)(currentBuffer + currentBufferOffset) = (Half)SoundRadius;
-			currentBufferOffset += sizeof(Half);
 		}
 		if (oldSharedProperties == null || CurrentModel != oldSharedProperties.CurrentModel)
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kModel);
-			if (Globals.networkManager.ModelsUsed.Count > 255)
+			bool sendModel = true;
+			if (oldSharedProperties == null)
 			{
-				*(short*)(currentBuffer + currentBufferOffset) = CurrentModel;
-				currentBufferOffset += 2;
+				if (CurrentModel == -1)
+				{
+					sendModel = false;
+				}
 			}
-			else
+			if (sendModel)
 			{
-				currentBuffer[currentBufferOffset] = (byte)CurrentModel;
-				currentBufferOffset++;
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kModel);
+				if (Globals.worldManager_server.networkManager_server.ModelsUsed.Count > 255)
+				{
+					*(short*)(currentBuffer + currentBufferOffset) = CurrentModel;
+					currentBufferOffset += 2;
+				}
+				else
+				{
+					currentBuffer[currentBufferOffset] = (byte)CurrentModel;
+					currentBufferOffset++;
+				}
 			}
 		}
 		if (oldSharedProperties == null || CurrentAnimation != oldSharedProperties.CurrentAnimation)
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kAnimation);
-			if (Globals.networkManager.AnimationsUsed.Count > 255)
+			bool sendAnimation = true;
+			if (oldSharedProperties == null)
 			{
-				*(short*)(currentBuffer + currentBufferOffset) = CurrentAnimation;
-				currentBufferOffset += 2;
+				if (CurrentAnimation == -1)
+				{
+					sendAnimation = false;
+				}
 			}
-			else
+			if (sendAnimation)
 			{
-				currentBuffer[currentBufferOffset] = (byte)CurrentAnimation;
-				currentBufferOffset++;
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kAnimation);
+				if (Globals.worldManager_server.networkManager_server.AnimationsUsed.Count > 255)
+				{
+					*(short*)(currentBuffer + currentBufferOffset) = CurrentAnimation;
+					currentBufferOffset += 2;
+				}
+				else
+				{
+					currentBuffer[currentBufferOffset] = (byte)CurrentAnimation;
+					currentBufferOffset++;
+				}
 			}
 		}
 		if (oldSharedProperties == null || ParticleEffect != oldSharedProperties.ParticleEffect)
 		{
-			SetAddedObjectToBuffer(SharedObjectValueSetMask.kParticleEffect);
-			if (Globals.networkManager.ParticleEffectsUsed.Count > 255)
+			bool sendParticleEffect = true;
+			if (oldSharedProperties == null)
 			{
-				*(short*)(currentBuffer + currentBufferOffset) = ParticleEffect;
-				currentBufferOffset += 2;
+				if (ParticleEffect == -1)
+				{
+					sendParticleEffect = false;
+				}
 			}
-			else
+			if (sendParticleEffect)
 			{
-				currentBuffer[currentBufferOffset] = (byte)ParticleEffect;
-				currentBufferOffset++;
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kParticleEffect);
+				if (Globals.worldManager_server.networkManager_server.ParticleEffectsUsed.Count > 255)
+				{
+					*(short*)(currentBuffer + currentBufferOffset) = ParticleEffect;
+					currentBufferOffset += 2;
+				}
+				else
+				{
+					currentBuffer[currentBufferOffset] = (byte)ParticleEffect;
+					currentBufferOffset++;
+				}
 			}
 		}
 		return currentBufferOffset;
@@ -683,6 +776,7 @@ public unsafe class SharedProperties
 		}
 	}
 
+	/*
 	/// <summary>
 	/// Calculates the total byte size of a SharedProperty entry given its mask.
 	/// This works because compression settings are compile-time constants.
@@ -728,4 +822,5 @@ public unsafe class SharedProperties
 
 		return size;
 	}
+	*/
 }

@@ -11,6 +11,10 @@ public class FrameState
     public FrameState(int SharedPropertiesCount)
     {
         SharedObjects = new List<SharedProperties>(SharedPropertiesCount);
+        for (int i = 0; i < SharedPropertiesCount; i++)
+        {
+            SharedObjects.Add(new SharedProperties());
+        }
         Node3DIDsDeletedForThisFrame = new List<short>();
         FrameIndex = 0;
     }
