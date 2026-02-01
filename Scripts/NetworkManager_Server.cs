@@ -7,12 +7,15 @@ public class NetworkManager_Server : NetworkManager_Common
 	private int FrameCount = 0;
 	public List<FrameState> Frames { get; set; }
 	private List<short> Node3DIDsDeletedThisFrame;
+
 	public List<NetworkingPlayerState> Players { get; set; }  // note, on the server, this will have mulitple entries.
-
-
 
 	public unsafe delegate int GameSpecificDataWriter(byte* bufferPtr, int bufferSize);
 	private GameSpecificDataWriter gameSpecificDataWriterCallback = null;
+
+	// Callback delegate for creating a player's in-world object
+	public delegate Node3D CreatePlayerObjectInWorld(int playerIndex);
+	private CreatePlayerObjectInWorld createPlayerObjectCallback = null;
 
 	private bool gameStarted = false;
 
@@ -46,6 +49,16 @@ public class NetworkManager_Server : NetworkManager_Common
 		gameSpecificDataWriterCallback = callback;
 	}
 
+	/// <summary>
+	/// Registers a callback to create a player's in-world object.
+	/// The callback receives the player index and returns the created Node3D.
+	/// Server-side only.
+	/// </summary>
+	public void RegisterCreatePlayerObjectCallback(CreatePlayerObjectInWorld callback)
+	{
+		createPlayerObjectCallback = callback;
+	}
+
 	public void AddPrecacheAnimationUsed_Server(string animationName)
 	{
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Animations used at this point!!");
@@ -70,7 +83,7 @@ public class NetworkManager_Server : NetworkManager_Common
 		SoundsUsed.Add(soundsName);
 	}
 
-public void InitNewGame_Server()
+	public void InitNewGame_Server()
 	{
 		// zeroed by default.
 		IDToNetworkIDLookup = new HashedSlotArray();
@@ -92,6 +105,16 @@ public void InitNewGame_Server()
 				newPlayer.IsOnServer = true;
 			}
 			Players.Add(newPlayer);
+
+			// now create an in world object for the player, so it gets transmitted across and other players can see them.
+			if (createPlayerObjectCallback != null)
+			{
+				Node3D playerNode = createPlayerObjectCallback(i);
+				if (playerNode != null)
+				{
+					newPlayer.InGameObjectInstanceID = playerNode.GetInstanceId();
+				}
+			}
 		}
 
 		if (playerOnServer != -1 && playerOnServer < Players.Count)
@@ -146,36 +169,45 @@ public void InitNewGame_Server()
 				// Create initial FrameState from all current objects
 				FrameState initialFrameState = CreateFrameStateFromCurrentObjects_Server(FrameCount);
 
-				// Write frame index (3 bytes) - this will be frame 1 (first frame)
-				Debug.Assert(currentOffset + 3 <= TCP_INIT_PACKET_SIZE, "Buffer overflow writing initial frame index");
+                // Store this as frame 0 - the known initial state all clients will have
+                Frames.Add(initialFrameState);
+                FrameCount++;
+
+                // Write frame index (3 bytes) - this will be frame 1 (first frame)
+                Debug.Assert(currentOffset + 3 <= TCP_INIT_PACKET_SIZE, "Buffer overflow writing initial frame index");
 				WriteInt24ToBuffer(bufferPtr, currentOffset, FrameCount);
 				currentOffset += 3;
 
-				// Write object count
-				Debug.Assert(currentOffset + sizeof(short) <= TCP_INIT_PACKET_SIZE, "Buffer overflow writing initial object count");
-				*(short*)(bufferPtr + currentOffset) = (short)initialFrameState.SharedObjects.Count;
+				// Store offset where object count will be written (we'll write it per-player)
+				int objectCountOffset = currentOffset;
 				currentOffset += sizeof(short);
 
-				// Write all SharedProperties to the buffer (no player culling, no delta compression)
-				(int bytesWritten, int objectCount) = WriteSharedPropertiesToBuffer_Server(
-					bufferPtr,
-					currentOffset,
-					TCP_INIT_PACKET_SIZE,
-					initialFrameState,
-					null,  // no lastAckedFrameState - this is the initial state
-					null); // no player - skip visibility culling, send all objects
+				// Store offset where SharedProperties start (we'll reset to this for each player)
+				int sharedPropertiesStartOffset = currentOffset;
 
-				currentOffset += bytesWritten;
-
-				// Store this as frame 0 - the known initial state all clients will have
-				Frames.Add(initialFrameState);
-				FrameCount++;
-
-				// Send the TCP packet to each player, updating the player index for each
+				// Send the TCP packet to each player, writing per-player SharedProperties
 				for (int playerIndex = 0; playerIndex < playerCount; playerIndex++)
 				{
+					// Reset offset to start of SharedProperties for this player
+					currentOffset = sharedPropertiesStartOffset;
+
 					// Update the player index byte in the buffer
 					bufferPtr[playerIndexOffset] = (byte)playerIndex;
+
+					// Write SharedProperties for this player (excludes their own player object)
+					NetworkingPlayerState player = Players[playerIndex];
+					(int bytesWritten, int objectCount) = WriteSharedPropertiesToBuffer_Server(
+						bufferPtr,
+						currentOffset,
+						TCP_INIT_PACKET_SIZE,
+						initialFrameState,
+						null,  // no lastAckedFrameState - this is the initial state
+						player); // pass player to exclude their own object
+
+					currentOffset += bytesWritten;
+
+					// Write object count (the count returned already excludes the player's own object)
+					*(short*)(bufferPtr + objectCountOffset) = (short)objectCount;
 
 					// Send the packet to this player
 					SendTCPInitPacketToPlayer_Server(tcpInitPacket, currentOffset, playerIndex);
@@ -360,15 +392,26 @@ public void InitNewGame_Server()
 		{
 			SharedProperties oldSharedPropertyToCompareAgainst = null;
 
-			// If player is provided, do visibility culling; otherwise send all objects
+			// Determine if we should transmit this object
 			bool shouldTransmitThisObject = true;
 			if (player != null)
 			{
-				shouldTransmitThisObject = player.DetermineSharedObjectCanBeSeenByPlayer(
-					sharedObject.Position,
-					sharedObject.ViewRadius,
-					sharedObject.PlayingSound,
-					sharedObject.SoundRadius);
+				// Don't send the player their own in-world object
+				ulong objectInstanceId = IDToNetworkIDLookup.GetAt(sharedObject.ObjectIndex);
+				if (objectInstanceId == player.InGameObjectInstanceID)
+				{
+					shouldTransmitThisObject = false;
+				}
+				else if (lastAckedFrameState != null)
+				{
+					// Only do visibility culling on regular updates, not on initial state
+					shouldTransmitThisObject = player.DetermineSharedObjectCanBeSeenByPlayer(
+						sharedObject.Position,
+						sharedObject.ViewRadius,
+						sharedObject.PlayingSound,
+						sharedObject.SoundRadius);
+				}
+				// If lastAckedFrameState is null (initial state), send all objects except player's own
 			}
 
 			if (shouldTransmitThisObject)
@@ -407,22 +450,24 @@ public void InitNewGame_Server()
 	}
 
 	/// <summary>
-	/// Processes a player input packet received from a client.
-	/// Reads player index to route to correct PlayerState, then delegates parsing.
+	/// Processes any incoming packet from a client.
+	/// Reads packet type and player index, then routes to appropriate handler.
 	/// </summary>
-	public unsafe void ReadPlayerInputFromClient_Server(byte[] incomingBuffer, int bufferSize)
+	public unsafe void ProcessIncomingClientPacket(byte[] incomingBuffer, int bufferSize)
 	{
+		if (bufferSize < 2)
+		{
+			// Minimum packet size is 2 bytes (type + player index)
+			return;
+		}
+
 		fixed (byte* bufferPtr = incomingBuffer)
 		{
-			int currentOffset = 0;
+			// Read packet type (1 byte)
+			PlayerSentPacketTypes packetType = (PlayerSentPacketTypes)bufferPtr[0];
 
 			// Read player index (1 byte)
-			byte playerIndex = bufferPtr[currentOffset];
-			currentOffset++;
-
-			// Read input sequence number (4 bytes) - store for potential future use
-			int inputSequenceNumber = *(int*)(bufferPtr + currentOffset);
-			currentOffset += sizeof(int);
+			byte playerIndex = bufferPtr[1];
 
 			// Validate player index
 			if (playerIndex >= Players.Count)
@@ -431,13 +476,89 @@ public void InitNewGame_Server()
 				return;
 			}
 
-			// Get the player state and delegate remaining parsing
 			NetworkingPlayerState player = Players[playerIndex];
-			// note, we send multiple instances of player movements from the client to the server. If we've already got this one, don't process it again.
-			if (player.inputSequenceNumber < inputSequenceNumber)
+
+			// Route to appropriate handler (buffer position after type and player index)
+			switch (packetType)
 			{
-				player.ReadSpecificPlayerInputFromClient(bufferPtr + currentOffset, bufferSize - currentOffset, inputSequenceNumber);
+				case PlayerSentPacketTypes.PLAYER_INPUT:
+					ReadPlayerInputFromClient(bufferPtr + 2, bufferSize - 2, player);
+					break;
+
+				case PlayerSentPacketTypes.INITIATING_TCP_ACK:
+					ProcessInitiatingTcpAck(bufferPtr + 2, bufferSize - 2, player);
+					break;
 			}
+		}
+	}
+
+	/// <summary>
+	/// Processes a player input packet received from a client.
+	/// Called after packet type and player index have been read.
+	/// </summary>
+	private unsafe void ReadPlayerInputFromClient(byte* bufferPtr, int bufferSize, NetworkingPlayerState player)
+	{
+		int currentOffset = 0;
+
+		// Read input sequence number (4 bytes)
+		int inputSequenceNumber = *(int*)(bufferPtr + currentOffset);
+		currentOffset += sizeof(int);
+
+		// note, we send multiple instances of player movements from the client to the server. If we've already got this one, don't process it again.
+		if (player.inputSequenceNumber < inputSequenceNumber)
+		{
+			player.ReadSpecificPlayerInputFromClient(bufferPtr + currentOffset, bufferSize - currentOffset, inputSequenceNumber);
+		}
+	}
+
+	/// <summary>
+	/// Processes an initiating TCP acknowledgment from a client.
+	/// Called when the client confirms receipt of the initial game state.
+	/// </summary>
+	private unsafe void ProcessInitiatingTcpAck(byte* bufferPtr, int bufferSize, NetworkingPlayerState player)
+	{
+		// This confirms the client received and processed the game initialization data
+		player.ReadyForGame = true;
+		player.LastAckedFrameClientReceived = 0;
+	}
+
+	/// <summary>
+	/// Returns the count of players that have acknowledged the initial game state and are ready to play.
+	/// </summary>
+	public int GetReadyPlayerCount()
+	{
+		int readyCount = 0;
+		foreach (NetworkingPlayerState player in Players)
+		{
+			if (player.ReadyForGame)
+			{
+				readyCount++;
+			}
+		}
+		return readyCount;
+	}
+
+	/// <summary>
+	/// Receives a reliable (TCP-like) packet from a client.
+	/// Called directly when client is on same machine, or via network otherwise.
+	/// </summary>
+	public void ReceiveReliablePacketFromClient(byte[] buffer, int size)
+	{
+		// Route through the common packet processor
+		ProcessIncomingClientPacket(buffer, size);
+	}
+
+	/// <summary>
+	/// Receives an unreliable (UDP-like) packet from a client.
+	/// Called directly when client is on same machine, or via network otherwise.
+	/// </summary>
+	public void ReceiveUnreliablePacketFromClient(byte[] buffer, int size)
+	{
+		// only do this if everyone has acked and the game has started
+		if (GetReadyPlayerCount() == Players.Count)
+		{
+			// Route through the common packet processor
+			ProcessIncomingClientPacket(buffer, size);
 		}
 	}
 

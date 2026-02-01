@@ -21,6 +21,12 @@ public class NetworkingPlayerState
 
     public bool IsOnServer = false;
 
+    // Server-side: tracks if client has acknowledged initial game state
+    public bool ReadyForGame = false;
+    
+    // Server-side: tracks if client has acknowledged initial game state
+    public ulong InGameObjectInstanceID = 0;
+
     static readonly float[] FOV = {90.0f, 70.0f};
 
     public NetworkingPlayerState()
@@ -37,15 +43,42 @@ public class NetworkingPlayerState
     }
 
     /// <summary>
-    /// Constructs a buffer containing player input and frame acknowledgement to send to the server.
+    /// Constructs a buffer containing the initial TCP acknowledgment to send to the server.
+    /// This confirms the client received and processed the game initialization data.
     /// Returns the buffer and the number of bytes written.
     /// </summary>
-    public unsafe (byte[] buffer, int size) SendPlayerInputAndAckToServer()
+    public unsafe (byte[] buffer, int size) ConstructInitiatingTcpAckPacket()
     {
         int currentOffset = 0;
 
         fixed (byte* bufferPtr = inputPacketBuffer)
         {
+            // Write packet type (1 byte)
+            bufferPtr[currentOffset] = (byte)PlayerSentPacketTypes.INITIATING_TCP_ACK;
+            currentOffset++;
+
+            // Write player index (1 byte) - which player we are on the server
+            bufferPtr[currentOffset] = (byte)WhichPlayerAreWeOnServer;
+            currentOffset++;
+        }
+
+        return (inputPacketBuffer, currentOffset);
+    }
+
+    /// <summary>
+    /// Constructs a buffer containing player input and frame acknowledgement to send to the server.
+    /// Returns the buffer and the number of bytes written.
+    /// </summary>
+    public unsafe (byte[] buffer, int size) ConstructPlayerInputPacket()
+    {
+        int currentOffset = 0;
+
+        fixed (byte* bufferPtr = inputPacketBuffer)
+        {
+            // Write packet type (1 byte)
+            bufferPtr[currentOffset] = (byte)PlayerSentPacketTypes.PLAYER_INPUT;
+            currentOffset++;
+
             // Write player index (1 byte) - which player we are on the server
             bufferPtr[currentOffset] = (byte)WhichPlayerAreWeOnServer;
             currentOffset++;
@@ -61,7 +94,7 @@ public class NetworkingPlayerState
             currentOffset += 3;
 
             // Write player position (3 floats = 12 bytes)
-              *(float*)(bufferPtr + currentOffset) = Position.X;
+            *(float*)(bufferPtr + currentOffset) = Position.X;
             currentOffset += sizeof(float);
             *(float*)(bufferPtr + currentOffset) = Position.Y;
             currentOffset += sizeof(float);
@@ -69,7 +102,7 @@ public class NetworkingPlayerState
             currentOffset += sizeof(float);
 
             // Write player orientation (3 floats = 12 bytes)
-             *(float*)(bufferPtr + currentOffset) = Orientation.X;
+            *(float*)(bufferPtr + currentOffset) = Orientation.X;
             currentOffset += sizeof(float);
             *(float*)(bufferPtr + currentOffset) = Orientation.Y;
             currentOffset += sizeof(float);

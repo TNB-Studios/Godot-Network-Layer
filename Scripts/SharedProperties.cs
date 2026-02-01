@@ -406,12 +406,50 @@ public unsafe class SharedProperties
 
 		// start looking at each value to see what we might put in the buffer for this object.
 		// Note: Position and Scale never use compressed format, only Full or Half
+		bool sendVelocity = false;
+		if (oldSharedProperties == null || CompareVector(Velocity, oldSharedProperties.Velocity))
+		{	
+			sendVelocity = true;	
+			if (oldSharedProperties == null)
+			{
+				if (Velocity == Vector3.Zero)
+				{
+					sendVelocity = false;
+				}
+			}
+			if (sendVelocity)
+			{
+				SetAddedObjectToBuffer(SharedObjectValueSetMask.kVelocity);
+				if (VelocityCompression == SetCompressionOnVectors.kFull)
+				{
+					CopyVectorToBuffer(Velocity, is2D);
+				}
+				else if (VelocityCompression == SetCompressionOnVectors.kHalf)
+				{
+					CopyVectorToBufferAsHalf(Velocity, is2D);
+				}
+				else
+				{
+					CopyVectorToBufferCompressed(Velocity, is2D);
+				}
+			}
+		}
 		if (oldSharedProperties == null || CompareVector(Position, oldSharedProperties.Position))
 		{
 			bool sendPosition = true;
 			if (oldSharedProperties == null)
 			{
 				if (Position == Vector3.Zero)
+				{
+					sendPosition = false;
+				}
+			}
+
+			if (sendPosition)
+			{
+				// so, if we didn't send a velocity, but there IS a velocity, and it's not the initial set up of the object, don't bother sending a positional update
+				// there's no need, because the object is moving anyway. We DO want to send a new position if the velocity has changed, just to be sure the object is in the right place
+				if (!sendVelocity && Velocity != Vector3.Zero && oldSharedProperties != null)
 				{
 					sendPosition = false;
 				}
@@ -488,33 +526,7 @@ public unsafe class SharedProperties
 				}
 			}
 		}
-		if (oldSharedProperties == null || CompareVector(Velocity, oldSharedProperties.Velocity))
-		{
-			bool sendVelocity = true;
-			if (oldSharedProperties == null)
-			{
-				if (Velocity == Vector3.Zero)
-				{
-					sendVelocity = false;
-				}
-			}
-			if (sendVelocity)
-			{
-				SetAddedObjectToBuffer(SharedObjectValueSetMask.kVelocity);
-				if (VelocityCompression == SetCompressionOnVectors.kFull)
-				{
-					CopyVectorToBuffer(Velocity, is2D);
-				}
-				else if (VelocityCompression == SetCompressionOnVectors.kHalf)
-				{
-					CopyVectorToBufferAsHalf(Velocity, is2D);
-				}
-				else
-				{
-					CopyVectorToBufferCompressed(Velocity, is2D);
-				}
-			}
-		}
+
 		if (oldSharedProperties == null || PlayingSound != oldSharedProperties.PlayingSound)
 		{
 			bool sendSound = true;

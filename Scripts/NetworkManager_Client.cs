@@ -5,7 +5,7 @@ using System.Diagnostics;
 public class NetworkManager_Client : NetworkManager_Common
 {
 	private int FramesFromServerCount = 0;
-	private NetworkingPlayerState ClientPlayer;
+	public NetworkingPlayerState ClientPlayer;
 
 	public unsafe delegate int GameSpecificDataReader(byte* bufferPtr, int bufferSize);
 	private GameSpecificDataReader gameSpecificDataReaderCallback = null;
@@ -138,13 +138,66 @@ public class NetworkManager_Client : NetworkManager_Common
 		}
 	}
 
-	public void Client_ResetNetworking()
+	public void Client_ResetNetworking(bool isOnServer = false)
 	{
 		// add a specific player for this player
 		ClientPlayer = new NetworkingPlayerState();
+		ClientPlayer.IsOnServer = isOnServer;
 
 		FramesFromServerCount = 0;
 		IDToNetworkIDLookup = new HashedSlotArray();
+	}
+
+	/// <summary>
+	/// Sends a packet from the client to the server.
+	/// If client is on the same machine as server, calls server directly.
+	/// </summary>
+	public void SendPacketToServer(byte[] buffer, int size, PacketDeliveryMethod deliveryMethod)
+	{
+		if (ClientPlayer.IsOnServer)
+		{
+			// Client is local to server - call server receive directly
+			if (deliveryMethod == PacketDeliveryMethod.Reliable)
+			{
+				Globals.worldManager_server.networkManager_server.ReceiveReliablePacketFromClient(buffer, size);
+			}
+			else
+			{
+				Globals.worldManager_server.networkManager_server.ReceiveUnreliablePacketFromClient(buffer, size);
+			}
+		}
+		else
+		{
+			// TODO: Implement actual network transmission to the remote server
+			if (deliveryMethod == PacketDeliveryMethod.Reliable)
+			{
+				// TODO: Send via TCP
+			}
+			else
+			{
+				// TODO: Send via UDP
+			}
+		}
+	}
+
+	/// <summary>
+	/// Constructs and sends the initial TCP acknowledgment to the server.
+	/// Call this after receiving and processing the initial game state.
+	/// </summary>
+	public void SendInitiatingTcpAck()
+	{
+		(byte[] buffer, int size) = ClientPlayer.ConstructInitiatingTcpAckPacket();
+		SendPacketToServer(buffer, size, PacketDeliveryMethod.Reliable);
+	}
+
+	/// <summary>
+	/// Constructs and sends a player input packet to the server.
+	/// Call this at regular intervals (e.g., 20hz) to send player state.
+	/// </summary>
+	public void SendPlayerInputToServer()
+	{
+		(byte[] buffer, int size) = ClientPlayer.ConstructPlayerInputPacket();
+		SendPacketToServer(buffer, size, PacketDeliveryMethod.Unreliable);
 	}
 
 	/// <summary>
@@ -352,6 +405,9 @@ public class NetworkManager_Client : NetworkManager_Common
 		}
 
 		FramesFromServerCount = 1; // We've received the initial state
+
+		// Send acknowledgment to server that we received the initial game state
+		SendInitiatingTcpAck();
 	}
 
 	/// <summary>

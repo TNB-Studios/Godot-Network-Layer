@@ -1,6 +1,24 @@
 using System.Collections.Generic;
 using Godot;
 
+/// <summary>
+/// Packet types sent from client to server.
+/// First byte of any client->server packet identifies the type.
+/// </summary>
+public enum PlayerSentPacketTypes : byte
+{
+	INITIATING_TCP_ACK = 0,
+	PLAYER_INPUT = 1
+}
+
+/// <summary>
+/// Delivery method for packets.
+/// </summary>
+public enum PacketDeliveryMethod
+{
+	Reliable,   // TCP-like, guaranteed delivery
+	Unreliable  // UDP-like, fire and forget
+}
 
 public class NetworkManager_Common
 {
