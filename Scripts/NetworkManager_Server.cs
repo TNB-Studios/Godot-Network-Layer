@@ -14,7 +14,7 @@ public class NetworkManager_Server : NetworkManager_Common
 	private GameSpecificDataWriter gameSpecificDataWriterCallback = null;
 
 	// Callback delegate for creating a player's in-world object
-	public delegate Node3D CreatePlayerObjectInWorld(int playerIndex);
+	public delegate NetworkedNode3D CreatePlayerObjectInWorld(int playerIndex);
 	private CreatePlayerObjectInWorld createPlayerObjectCallback = null;
 
 	private bool gameStarted = false;
@@ -109,7 +109,7 @@ public class NetworkManager_Server : NetworkManager_Common
 			// now create an in world object for the player, so it gets transmitted across and other players can see them.
 			if (createPlayerObjectCallback != null)
 			{
-				Node3D playerNode = createPlayerObjectCallback(i);
+				NetworkedNode3D playerNode = createPlayerObjectCallback(i);
 				if (playerNode != null)
 				{
 					newPlayer.InGameObjectInstanceID = playerNode.GetInstanceId();
@@ -330,7 +330,11 @@ public class NetworkManager_Server : NetworkManager_Common
 					newSharedProperty.ViewRadius = 1.0f; // Default fallback
 				}
 
-				if (node3D is CharacterBody3D characterBody)
+				if (node3D is NetworkedNode3D networkedNode3D)
+				{
+					newSharedProperty.Velocity = networkedNode3D.Velocity;
+				}
+				else if (node3D is CharacterBody3D characterBody)
 				{
 					newSharedProperty.Velocity = characterBody.Velocity;
 				}
@@ -353,7 +357,11 @@ public class NetworkManager_Server : NetworkManager_Common
 				newSharedProperty.ViewRadius = 1.0f; // Default for 2D
 
 				// Handle 2D velocity
-				if (node2D is CharacterBody2D characterBody2D)
+				if (node2D is NetworkedNode2D networkedNode2D)
+				{
+					newSharedProperty.Velocity = new Vector3(networkedNode2D.Velocity.X, networkedNode2D.Velocity.Y, 0);
+				}
+				else if (node2D is CharacterBody2D characterBody2D)
 				{
 					newSharedProperty.Velocity = new Vector3(characterBody2D.Velocity.X, characterBody2D.Velocity.Y, 0);
 				}

@@ -274,11 +274,11 @@ public class NetworkManager_Client : NetworkManager_Common
 				// New object - create appropriate node type and register it at the same index as server
 				if (is2D)
 				{
-					targetNode = new Node2D();
+					targetNode = new NetworkedNode2D();
 				}
 				else
 				{
-					targetNode = new Node3D();
+					targetNode = new NetworkedNode3D();
 				}
 				// Add to client scene tree via callback (for multi-pass rendering support)
 				if (addNodeToClientSceneCallback != null)
