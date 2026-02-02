@@ -233,7 +233,7 @@ public class GodotNetworkLayer_Server
         while (_udpSocket.GetAvailablePacketCount() > 0)
         {
             byte[] packet = _udpSocket.GetPacket();
-            string senderIp = _udpSocket.GetPacketIp();
+            string senderIp = _udpSocket.GetPacketAddress();
             int senderPort = _udpSocket.GetPacketPort();
 
             // Find which client this is from (by matching TCP connection IP, or create mapping)
