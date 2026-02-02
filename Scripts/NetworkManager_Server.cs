@@ -88,16 +88,18 @@ public class NetworkManager_Server : NetworkManager_Common
 	{
 		// zeroed by default.
 		IDToNetworkIDLookup = new HashedSlotArray();
-	}
 
-	public void NewGameSetup_Server(int playerCount, int playerOnServer = -1)
-	{
         // note, not reseting the arrays of animations, models and sounds used, since this shouldn't change game to game.
         // but we do need to reload everything.
         // note, this has to happen AFTER we've set all the names and before any of them are actually used.
         LoadModelsFromNames();
         LoadSoundsFromNames();
         LoadParticleEffectsFromNames();
+    }
+
+	public void NewGameSetup_Server(int playerCount, int playerOnServer = -1)
+	{
+
 
         Players = new List<NetworkingPlayerState>();
 		Frames = new List<FrameState>();
