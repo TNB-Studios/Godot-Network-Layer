@@ -25,6 +25,8 @@ public class NetworkManager_Common
 	// Reference nodes for scene tree access
 	protected Node _rootSceneNode;
 
+	public Node RootSceneNode => _rootSceneNode;
+
 	// NOTE - On the server these need to be precached BEFORE we start the game; they cannot be changed post game start, since they are transmitted
 	// to all clients on each Client being initialized. Also, they can't be larger than 65536 in size, but that should be enough for anyone - this is the max index size in individual SharedProperties
 	public List<string> SoundNames { get; set; } = new List<string>();
@@ -45,11 +47,6 @@ public class NetworkManager_Common
 	{
 		_rootSceneNode = rootSceneNode;
 	}
-
-
-
-
-
 
 
 	/// <summary>

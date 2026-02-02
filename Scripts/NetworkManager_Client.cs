@@ -25,7 +25,11 @@ public class NetworkManager_Client : NetworkManager_Common
 	public delegate void DeleteNodeFromClientScene(Node node);
 	private DeleteNodeFromClientScene deleteNodeFromClientSceneCallback = null;
 
-	public NetworkManager_Client(Node rootSceneNode) : base(rootSceneNode)
+	public delegate void GotStartGamePacketFromServer();
+	private GotStartGamePacketFromServer gotStartGamePacketFromServer = null;
+
+
+    public NetworkManager_Client(Node rootSceneNode) : base(rootSceneNode)
 	{
 
 	}
@@ -81,11 +85,16 @@ public class NetworkManager_Client : NetworkManager_Common
 		deleteNodeFromClientSceneCallback = callback;
 	}
 
-	/// <summary>
-	/// Called by SharedProperties when a model needs to be updated on a node.
-	/// Routes through the callback if registered, otherwise handles directly.
-	/// </summary>
-	public void ApplyModelToNode(Node targetNode, short modelIndex)
+	public void RegisterInitialGamePacketFromServerCallback(GotStartGamePacketFromServer callback)
+	{
+		gotStartGamePacketFromServer = callback;
+    }
+
+    /// <summary>
+    /// Called by SharedProperties when a model needs to be updated on a node.
+    /// Routes through the callback if registered, otherwise handles directly.
+    /// </summary>
+    public void ApplyModelToNode(Node targetNode, short modelIndex)
 	{
 		if (updateNodeModelCallback != null)
 		{
@@ -426,6 +435,12 @@ public class NetworkManager_Client : NetworkManager_Common
 		LoadModelsFromNames();
 		LoadSoundsFromNames();
 		LoadParticleEffectsFromNames();
+
+		if (gotStartGamePacketFromServer != null)
+		{
+			gotStartGamePacketFromServer();
+
+        }
 
 		FramesFromServerCount = 1; // We've received the initial state
 		ClientPlayer.ReadyForGame = true;
