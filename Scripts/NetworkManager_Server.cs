@@ -10,6 +10,9 @@ public class NetworkManager_Server : NetworkManager_Common
 
 	public List<NetworkingPlayerState> Players { get; set; }  // note, on the server, this will have mulitple entries.
 
+	// Network layer for remote client communication
+	private GodotNetworkLayer_Server _networkLayer;
+
 	public unsafe delegate int GameSpecificDataWriter(byte* bufferPtr, int bufferSize);
 	private GameSpecificDataWriter gameSpecificDataWriterCallback = null;
 
@@ -24,6 +27,129 @@ public class NetworkManager_Server : NetworkManager_Common
 	public NetworkManager_Server(Node rootSceneNode) : base(rootSceneNode)
 	{
 
+	}
+
+	/// <summary>
+	/// Starts the server listening for remote client connections.
+	/// </summary>
+	public Error StartNetworkServer(int tcpPort, int udpPort)
+	{
+		_networkLayer = new GodotNetworkLayer_Server();
+
+		// Hook up receive callbacks
+		_networkLayer.OnClientTcpConnected = OnNetworkClientTcpConnected;
+		_networkLayer.OnClientTcpDisconnected = OnNetworkClientTcpDisconnected;
+		_networkLayer.OnClientUdpConfirmed = OnNetworkClientUdpConfirmed;
+		_networkLayer.OnTcpDataReceived = OnNetworkTcpDataReceived;
+		_networkLayer.OnUdpDataReceived = OnNetworkUdpDataReceived;
+
+		return _networkLayer.StartServer(tcpPort, udpPort);
+	}
+
+	/// <summary>
+	/// Stops the network server.
+	/// </summary>
+	public void StopNetworkServer()
+	{
+		_networkLayer?.StopServer();
+		_networkLayer = null;
+	}
+
+	/// <summary>
+	/// Poll the network layer for incoming connections and data. Call every frame.
+	/// </summary>
+	public void PollNetwork()
+	{
+		_networkLayer?.Poll();
+	}
+
+	/// <summary>
+	/// Returns true when all connected clients have confirmed their UDP connection.
+	/// </summary>
+	public bool AllClientsUdpReady => _networkLayer?.AllClientsUdpConfirmed ?? false;
+
+	/// <summary>
+	/// Send UDP frame data to a specific remote player.
+	/// </summary>
+	public void SendUdpToPlayer(int playerIndex, byte[] data, int size)
+	{
+		if (playerIndex < 0 || playerIndex >= Players.Count) return;
+		NetworkingPlayerState player = Players[playerIndex];
+
+		if (player.IsOnServer)
+		{
+			// Local player - call directly
+			Globals.worldManager_client.networkManager_client.FramePacketReceived_Client(data, size);
+		}
+		else
+		{
+			// Remote player - send via network
+			if (_networkLayer != null && player.NetworkClientId >= 0)
+			{
+				_networkLayer.SendUdpToClient(player.NetworkClientId, data, size);
+			}
+		}
+	}
+
+	private void OnNetworkClientTcpConnected(int clientId)
+	{
+		GD.Print($"NetworkManager_Server: Client {clientId} connected via TCP");
+		// Player creation will be handled elsewhere when we know which player this is
+	}
+
+	private void OnNetworkClientTcpDisconnected(int clientId)
+	{
+		GD.Print($"NetworkManager_Server: Client {clientId} disconnected");
+		// Find and mark the player as disconnected
+		foreach (NetworkingPlayerState player in Players)
+		{
+			if (player.NetworkClientId == clientId)
+			{
+				player.NetworkClientId = -1;
+				// TODO: Handle player disconnect (remove from game, etc.)
+				break;
+			}
+		}
+	}
+
+	private void OnNetworkClientUdpConfirmed(int clientId)
+	{
+		GD.Print($"NetworkManager_Server: Client {clientId} UDP confirmed");
+	}
+
+	private void OnNetworkTcpDataReceived(int clientId, byte[] data, int size)
+	{
+		// Find which player this is and process reliable packet
+		foreach (NetworkingPlayerState player in Players)
+		{
+			if (player.NetworkClientId == clientId)
+			{
+				ReceiveReliablePacketFromClient(data, size);
+				return;
+			}
+		}
+		// If no player found yet, this might be the initial connection
+		// For now, just process it anyway
+		ReceiveReliablePacketFromClient(data, size);
+	}
+
+	private void OnNetworkUdpDataReceived(int clientId, byte[] data, int size)
+	{
+		// Skip "I'm here" packets (they're just for NAT hole punching)
+		if (size == 1 && data[0] == (byte)ClientUdpPacketType.UDP_HERE)
+		{
+			return;
+		}
+
+		// Find which player this is and process unreliable packet
+		foreach (NetworkingPlayerState player in Players)
+		{
+			if (player.NetworkClientId == clientId)
+			{
+				ReceiveUnreliablePacketFromClient(data, size);
+				return;
+			}
+		}
 	}
 
     public void AddNodeToNetworkedNodeList(Node newNode)
@@ -240,7 +366,11 @@ public class NetworkManager_Server : NetworkManager_Common
 		}
 		else
 		{
-			// TODO: Implement actual TCP transmission to the remote player
+			// Remote player - send via network layer
+			if (_networkLayer != null && player.NetworkClientId >= 0)
+			{
+				_networkLayer.SendTcpToClient(player.NetworkClientId, packet, packetSize);
+			}
 		}
 	}
 

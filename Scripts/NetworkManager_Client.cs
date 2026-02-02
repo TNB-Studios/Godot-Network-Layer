@@ -7,6 +7,9 @@ public class NetworkManager_Client : NetworkManager_Common
 	private int FramesFromServerCount = 0;
 	public NetworkingPlayerState ClientPlayer;
 
+	// Network layer for remote server communication
+	private GodotNetworkLayer_Client _networkLayer;
+
 	public unsafe delegate int GameSpecificDataReader(byte* bufferPtr, int bufferSize);
 	private GameSpecificDataReader gameSpecificDataReaderCallback = null;
 
@@ -34,6 +37,64 @@ public class NetworkManager_Client : NetworkManager_Common
 
 	}
 
+	/// <summary>
+	/// Connects to a remote server via TCP and UDP.
+	/// Only call this for remote clients (not local client on same instance as server).
+	/// </summary>
+	public Error ConnectToRemoteServer(string serverAddress, int tcpPort, int udpPort)
+	{
+		_networkLayer = new GodotNetworkLayer_Client();
+
+		// Hook up receive callbacks
+		_networkLayer.OnTcpDataReceived = OnNetworkTcpDataReceived;
+		_networkLayer.OnUdpDataReceived = OnNetworkUdpDataReceived;
+		_networkLayer.OnConnected = OnNetworkConnected;
+		_networkLayer.OnDisconnected = OnNetworkDisconnected;
+
+		return _networkLayer.ConnectToServer(serverAddress, tcpPort, udpPort);
+	}
+
+	/// <summary>
+	/// Poll the network layer for incoming data. Call every frame for remote clients.
+	/// </summary>
+	public void PollNetwork(double currentTime)
+	{
+		_networkLayer?.Poll(currentTime);
+	}
+
+	/// <summary>
+	/// Called when first frame state is received from server.
+	/// Stops the UDP "I'm here" spam.
+	/// </summary>
+	public void NotifyFirstFrameStateReceived()
+	{
+		if (_networkLayer != null)
+		{
+			_networkLayer.ReceivedFirstFrameState = true;
+		}
+	}
+
+	private void OnNetworkTcpDataReceived(byte[] data, int size)
+	{
+		// TCP data from server - this is the init packet or other reliable messages
+		NewGamePacketReceived_Client(data, size);
+	}
+
+	private void OnNetworkUdpDataReceived(byte[] data, int size)
+	{
+		// UDP data from server - this is frame state
+		FramePacketReceived_Client(data, size);
+	}
+
+	private void OnNetworkConnected()
+	{
+		GD.Print("NetworkManager_Client: Connected to server");
+	}
+
+	private void OnNetworkDisconnected()
+	{
+		GD.Print("NetworkManager_Client: Disconnected from server");
+	}
 
     /// <summary>
     /// Registers a callback to read game-specific data from the start of the TCP init packet.
@@ -187,14 +248,17 @@ public class NetworkManager_Client : NetworkManager_Common
 		}
 		else
 		{
-			// TODO: Implement actual network transmission to the remote server
-			if (deliveryMethod == PacketDeliveryMethod.Reliable)
+			// Remote server - send via network layer
+			if (_networkLayer != null)
 			{
-				// TODO: Send via TCP
-			}
-			else
-			{
-				// TODO: Send via UDP
+				if (deliveryMethod == PacketDeliveryMethod.Reliable)
+				{
+					_networkLayer.SendTcpToServer(buffer, size);
+				}
+				else
+				{
+					_networkLayer.SendUdpToServer(buffer, size);
+				}
 			}
 		}
 	}
@@ -414,14 +478,11 @@ public class NetworkManager_Client : NetworkManager_Common
 				// Store the frame index as the last acked frame for this client
 				ClientPlayer.LastAckedFrameClientReceived = frameIndex;
 
-
-
                 // new precache all the list of sounds and models we need  - Note, have to do this here, because these may well be used by the objects beng loaded next
                 // TODO - add particle Effects and Animations to be loaded
                 LoadModelsFromNames();
                 LoadSoundsFromNames();
-                LoadParticleEffectsFromNames();             
-				
+                LoadParticleEffectsFromNames();             			
 				
 				// Read object count
                 Debug.Assert(currentOffset + sizeof(short) <= incomingBuffer.Length, "Buffer underflow reading initial object count");

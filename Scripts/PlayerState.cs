@@ -21,6 +21,9 @@ public class NetworkingPlayerState
 
     public bool IsOnServer = false;
 
+    // Server-side: network client ID for remote players (-1 if local or not connected)
+    public int NetworkClientId = -1;
+
     // Server-side: tracks if client has acknowledged initial game state
     public bool ReadyForGame = false;
     
@@ -39,7 +42,16 @@ public class NetworkingPlayerState
 
     public void TransmitUDPFromServerToClient()
     {
-        
+        if (IsOnServer)
+        {
+            // Local player - call client receive directly
+            Globals.worldManager_client.networkManager_client.FramePacketReceived_Client(CurrentUDPPlayerPacket, CurrentUDPPlayerPacketSize);
+        }
+        else
+        {
+            // Remote player - send via network manager
+            Globals.worldManager_server.networkManager_server.SendUdpToPlayer(WhichPlayerAreWeOnServer, CurrentUDPPlayerPacket, CurrentUDPPlayerPacketSize);
+        }
     }
 
     /// <summary>
