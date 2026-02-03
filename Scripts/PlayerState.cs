@@ -7,10 +7,40 @@ public class NetworkingPlayerState
     public Vector3 Position { get; set; }
     public Vector3 Orientation { get; set; }
     public Vector3 Velocity { get; set; }
+    public Vector3 Scale { get; set; }
+    public bool Is2D { get; set; }
+
+    // Server-side: last frame values for delta compression
+    public Vector3 LastSentPosition { get; set; }
+    public Vector3 LastSentOrientation { get; set; }
+    public Vector3 LastSentVelocity { get; set; }
+    public Vector3 LastSentScale { get; set; }
+
+    public enum PlayerStateAndTransmissionBitMasks
+    {
+		kPosition = SharedProperties.SharedObjectValueSetMask.kPosition,
+		kOrientation = SharedProperties.SharedObjectValueSetMask.kOrientation,
+		kVelocity = SharedProperties.SharedObjectValueSetMask.kVelocity,
+		kScale = SharedProperties.SharedObjectValueSetMask.kScale,
+		kPlayerStateDead = 0x10,
+		kPlayerStateSpawning = 0x20,
+		kPlayerStatePlaying = 0x40,
+        kPlayerTeleported = 0x80
+    }
 
     public static readonly int MAX_UDP_PACKET_SIZE = 1400;
     public byte[] CurrentUDPPlayerPacket = new byte[MAX_UDP_PACKET_SIZE];
     public int CurrentUDPPlayerPacketSize = 0;
+
+    // Position interpolation constants and state
+    public static readonly float PLAYER_POSITION_EPSILON = 0.01f;
+    public static readonly int INTERPOLATION_FRAMES = 6; // ~100ms at 60fps
+
+    // Client-side: interpolation state
+    public bool IsInterpolatingPosition { get; private set; } = false;
+    private Vector3 _interpolationStartPosition;
+    private Vector3 _interpolationTargetPosition;
+    private int _interpolationFramesRemaining = 0;
 
     public int WhichPlayerAreWeOnServer  { get; set; }= 0;
 
@@ -32,12 +62,111 @@ public class NetworkingPlayerState
 
     static readonly float[] FOV = {90.0f, 70.0f};
 
-    public NetworkingPlayerState()
+    public NetworkingPlayerState(bool is2D = false)
     {
         LastAckedFrameClientReceived = -1;
         Position = Vector3.Zero;
         Orientation = Vector3.Zero;
         Velocity = Vector3.Zero;
+        Scale = Vector3.One;
+        Is2D = is2D;
+        // Initialize last sent values to trigger full send on first frame
+        LastSentPosition = new Vector3(float.NaN, float.NaN, float.NaN);
+        LastSentOrientation = new Vector3(float.NaN, float.NaN, float.NaN);
+        LastSentVelocity = new Vector3(float.NaN, float.NaN, float.NaN);
+        LastSentScale = new Vector3(float.NaN, float.NaN, float.NaN);
+    }
+
+    /// <summary>
+    /// Called on the client when receiving player transform data from the server.
+    /// Handles reconciliation between client-predicted position and server-authoritative position.
+    /// </summary>
+    /// <param name="stateMask">The full state/transform mask byte containing player state flags</param>
+    /// <param name="newPosition">New position if kPosition flag is set</param>
+    /// <param name="newOrientation">New orientation if kOrientation flag is set</param>
+    /// <param name="newVelocity">New velocity if kVelocity flag is set</param>
+    /// <param name="newScale">New scale if kScale flag is set</param>
+    public void ReceiveTransformFromServer(byte stateMask, Vector3? newPosition, Vector3? newOrientation, Vector3? newVelocity, Vector3? newScale)
+    {
+        bool playerTeleported = (stateMask & (byte)PlayerStateAndTransmissionBitMasks.kPlayerTeleported) != 0;
+        bool playerDead = (stateMask & (byte)PlayerStateAndTransmissionBitMasks.kPlayerStateDead) != 0;
+        bool playerSpawning = (stateMask & (byte)PlayerStateAndTransmissionBitMasks.kPlayerStateSpawning) != 0;
+
+        if (newPosition.HasValue)
+        {
+            if (playerTeleported || playerSpawning)
+            {
+                // Snap directly to position - no interpolation
+                Position = newPosition.Value;
+                CancelPositionInterpolation();
+            }
+            else
+            {
+                // Check if delta exceeds epsilon - if so, interpolate
+                float delta = (Position - newPosition.Value).Length();
+                if (delta > PLAYER_POSITION_EPSILON)
+                {
+                    // Start interpolation from current position to target
+                    _interpolationStartPosition = Position;
+                    _interpolationTargetPosition = newPosition.Value;
+                    _interpolationFramesRemaining = INTERPOLATION_FRAMES;
+                    IsInterpolatingPosition = true;
+                }
+                else
+                {
+                    // Delta is small enough, just set directly
+                    Position = newPosition.Value;
+                }
+            }
+        }
+
+        if (newOrientation.HasValue)
+        {
+            Orientation = newOrientation.Value;
+        }
+
+        if (newVelocity.HasValue)
+        {
+            Velocity = newVelocity.Value;
+        }
+
+        if (newScale.HasValue)
+        {
+            Scale = newScale.Value;
+        }
+    }
+
+    /// <summary>
+    /// Advances position interpolation by one frame. Call this each frame on the client.
+    /// </summary>
+    public void TickPositionInterpolation()
+    {
+        if (!IsInterpolatingPosition)
+            return;
+
+        _interpolationFramesRemaining--;
+
+        if (_interpolationFramesRemaining <= 0)
+        {
+            // Interpolation complete - snap to target
+            Position = _interpolationTargetPosition;
+            IsInterpolatingPosition = false;
+        }
+        else
+        {
+            // Calculate interpolation progress (0 = start, 1 = end)
+            float t = 1.0f - ((float)_interpolationFramesRemaining / INTERPOLATION_FRAMES);
+            Position = _interpolationStartPosition.Lerp(_interpolationTargetPosition, t);
+        }
+    }
+
+    /// <summary>
+    /// Cancels any in-progress position interpolation.
+    /// </summary>
+    public void CancelPositionInterpolation()
+    {
+        IsInterpolatingPosition = false;
+        _interpolationFramesRemaining = 0;
     }
 
     public void TransmitUDPFromServerToClient()

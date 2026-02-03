@@ -1,11 +1,12 @@
 using Godot;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
 public class NetworkManager_Client : NetworkManager_Common
 {
 	private int FramesFromServerCount = 0;
-	public NetworkingPlayerState ClientPlayer;
+	public NetworkingPlayerState NetworkedClientPlayer;
 
 	// Network layer for remote server communication
 	private GodotNetworkLayer_Client _networkLayer;
@@ -221,8 +222,8 @@ public class NetworkManager_Client : NetworkManager_Common
 	public void Client_ResetNetworking(bool isOnServer)
 	{
 		// add a specific player for this player
-		ClientPlayer = new NetworkingPlayerState();
-		ClientPlayer.IsOnServer = isOnServer;
+		NetworkedClientPlayer = new NetworkingPlayerState();
+		NetworkedClientPlayer.IsOnServer = isOnServer;
 
 		FramesFromServerCount = 0;
 		IDToNetworkIDLookup = new HashedSlotArray();
@@ -234,7 +235,7 @@ public class NetworkManager_Client : NetworkManager_Common
 	/// </summary>
 	public void SendPacketToServer(byte[] buffer, int size, PacketDeliveryMethod deliveryMethod)
 	{
-		if (ClientPlayer.IsOnServer)
+		if (NetworkedClientPlayer.IsOnServer)
 		{
 			// Client is local to server - call server receive directly
 			if (deliveryMethod == PacketDeliveryMethod.Reliable)
@@ -269,7 +270,7 @@ public class NetworkManager_Client : NetworkManager_Common
 	/// </summary>
 	public void SendInitiatingTcpAck()
 	{
-		(byte[] buffer, int size) = ClientPlayer.ConstructInitiatingTcpAckPacket();
+		(byte[] buffer, int size) = NetworkedClientPlayer.ConstructInitiatingTcpAckPacket();
 		SendPacketToServer(buffer, size, PacketDeliveryMethod.Reliable);
 	}
 
@@ -279,7 +280,7 @@ public class NetworkManager_Client : NetworkManager_Common
 	/// </summary>
 	public void SendPlayerInputToServer()
 	{
-		(byte[] buffer, int size) = ClientPlayer.ConstructPlayerInputPacket();
+		(byte[] buffer, int size) = NetworkedClientPlayer.ConstructPlayerInputPacket();
 		SendPacketToServer(buffer, size, PacketDeliveryMethod.Unreliable);
 	}
 
@@ -456,7 +457,58 @@ public class NetworkManager_Client : NetworkManager_Common
 				currentOffset++;
 
 				// Store the player index on our local player state
-				ClientPlayer.WhichPlayerAreWeOnServer = playerIndex;
+				NetworkedClientPlayer.WhichPlayerAreWeOnServer = playerIndex;
+
+				// Read Is2D flag
+				Debug.Assert(currentOffset + 1 <= incomingBuffer.Length, "Buffer underflow reading player Is2D");
+				NetworkedClientPlayer.Is2D = bufferPtr[currentOffset] != 0;
+				currentOffset++;
+
+				// Read player position, orientation, scale based on Is2D
+				if (NetworkedClientPlayer.Is2D)
+				{
+					// 2D: Position (2 halfs), Orientation (1 half), Scale (2 halfs) = 10 bytes
+					Debug.Assert(currentOffset + sizeof(Half) * 5 <= incomingBuffer.Length, "Buffer underflow reading 2D player transform");
+					NetworkedClientPlayer.Position = new Vector3(
+						(float)*(Half*)(bufferPtr + currentOffset),
+						(float)*(Half*)(bufferPtr + currentOffset + 2),
+						0
+					);
+					NetworkedClientPlayer.Orientation = new Vector3(
+						0,
+						0,
+						(float)*(Half*)(bufferPtr + currentOffset + 4)
+					);
+					NetworkedClientPlayer.Scale = new Vector3(
+						(float)*(Half*)(bufferPtr + currentOffset + 6),
+						(float)*(Half*)(bufferPtr + currentOffset + 8),
+						1
+					);
+					currentOffset += sizeof(Half) * 5;
+					// Skip remaining reserved space (9 - 5 = 4 halfs)
+					currentOffset += sizeof(Half) * 4;
+				}
+				else
+				{
+					// 3D: Position (3 halfs), Orientation (3 halfs), Scale (3 halfs) = 18 bytes
+					Debug.Assert(currentOffset + sizeof(Half) * 9 <= incomingBuffer.Length, "Buffer underflow reading 3D player transform");
+					NetworkedClientPlayer.Position = new Vector3(
+						(float)*(Half*)(bufferPtr + currentOffset),
+						(float)*(Half*)(bufferPtr + currentOffset + 2),
+						(float)*(Half*)(bufferPtr + currentOffset + 4)
+					);
+					NetworkedClientPlayer.Orientation = new Vector3(
+						(float)*(Half*)(bufferPtr + currentOffset + 6),
+						(float)*(Half*)(bufferPtr + currentOffset + 8),
+						(float)*(Half*)(bufferPtr + currentOffset + 10)
+					);
+					NetworkedClientPlayer.Scale = new Vector3(
+						(float)*(Half*)(bufferPtr + currentOffset + 12),
+						(float)*(Half*)(bufferPtr + currentOffset + 14),
+						(float)*(Half*)(bufferPtr + currentOffset + 16)
+					);
+					currentOffset += sizeof(Half) * 9;
+				}
 
 				// Read SoundNames list
 				currentOffset = ReadStringListFromBuffer(bufferPtr, currentOffset, incomingBuffer.Length, SoundNames);
@@ -476,7 +528,7 @@ public class NetworkManager_Client : NetworkManager_Common
 				currentOffset += 3;
 
 				// Store the frame index as the last acked frame for this client
-				ClientPlayer.LastAckedFrameClientReceived = frameIndex;
+				NetworkedClientPlayer.LastAckedFrameClientReceived = frameIndex;
 
                 // new precache all the list of sounds and models we need  - Note, have to do this here, because these may well be used by the objects beng loaded next
                 // TODO - add particle Effects and Animations to be loaded
@@ -509,7 +561,7 @@ public class NetworkManager_Client : NetworkManager_Common
         }
 
 		FramesFromServerCount = 1; // We've received the initial state
-		ClientPlayer.ReadyForGame = true;
+		NetworkedClientPlayer.ReadyForGame = true;
 
 		// Send acknowledgment to server that we received the initial game state
 		SendInitiatingTcpAck();
@@ -532,7 +584,108 @@ public class NetworkManager_Client : NetworkManager_Common
 				currentOffset += 3;
 
 				// Store the frame index as the last acked frame for this client
-				ClientPlayer.LastAckedFrameClientReceived = frameIndex;
+				NetworkedClientPlayer.LastAckedFrameClientReceived = frameIndex;
+
+				// Read player transform mask and changed values
+				byte playerTransformMask = bufferPtr[currentOffset];
+				currentOffset++;
+
+				Vector3? newPosition = null;
+				Vector3? newOrientation = null;
+				Vector3? newVelocity = null;
+				Vector3? newScale = null;
+				bool is2D = NetworkedClientPlayer.Is2D;
+
+				if ((playerTransformMask & (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kPosition) != 0)
+				{
+					if (is2D)
+					{
+						newPosition = new Vector3(
+							(float)*(Half*)(bufferPtr + currentOffset),
+							(float)*(Half*)(bufferPtr + currentOffset + 2),
+							0
+						);
+						currentOffset += 4;
+					}
+					else
+					{
+						newPosition = new Vector3(
+							(float)*(Half*)(bufferPtr + currentOffset),
+							(float)*(Half*)(bufferPtr + currentOffset + 2),
+							(float)*(Half*)(bufferPtr + currentOffset + 4)
+						);
+						currentOffset += 6;
+					}
+				}
+
+				if ((playerTransformMask & (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kOrientation) != 0)
+				{
+					if (is2D)
+					{
+						newOrientation = new Vector3(
+							0,
+							0,
+							(float)*(Half*)(bufferPtr + currentOffset)
+						);
+						currentOffset += 2;
+					}
+					else
+					{
+						newOrientation = new Vector3(
+							(float)*(Half*)(bufferPtr + currentOffset),
+							(float)*(Half*)(bufferPtr + currentOffset + 2),
+							(float)*(Half*)(bufferPtr + currentOffset + 4)
+						);
+						currentOffset += 6;
+					}
+				}
+
+				if ((playerTransformMask & (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kVelocity) != 0)
+				{
+					if (is2D)
+					{
+						newVelocity = new Vector3(
+							(float)*(Half*)(bufferPtr + currentOffset),
+							(float)*(Half*)(bufferPtr + currentOffset + 2),
+							0
+						);
+						currentOffset += 4;
+					}
+					else
+					{
+						newVelocity = new Vector3(
+							(float)*(Half*)(bufferPtr + currentOffset),
+							(float)*(Half*)(bufferPtr + currentOffset + 2),
+							(float)*(Half*)(bufferPtr + currentOffset + 4)
+						);
+						currentOffset += 6;
+					}
+				}
+
+				if ((playerTransformMask & (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kScale) != 0)
+				{
+					if (is2D)
+					{
+						newScale = new Vector3(
+							(float)*(Half*)(bufferPtr + currentOffset),
+							(float)*(Half*)(bufferPtr + currentOffset + 2),
+							1
+						);
+						currentOffset += 4;
+					}
+					else
+					{
+						newScale = new Vector3(
+							(float)*(Half*)(bufferPtr + currentOffset),
+							(float)*(Half*)(bufferPtr + currentOffset + 2),
+							(float)*(Half*)(bufferPtr + currentOffset + 4)
+						);
+						currentOffset += 6;
+					}
+				}
+
+				// Apply the transform data through the player state handler
+				NetworkedClientPlayer.ReceiveTransformFromServer(playerTransformMask, newPosition, newOrientation, newVelocity, newScale);
 
 				// Read object count (2 bytes)
 				short objectCount = *(short*)(bufferPtr + currentOffset);

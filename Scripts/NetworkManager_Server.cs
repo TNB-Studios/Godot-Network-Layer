@@ -1,4 +1,5 @@
 using Godot;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
@@ -225,8 +226,6 @@ public class NetworkManager_Server : NetworkManager_Common
 
 	public void NewGameSetup_Server(int playerCount, int playerOnServer = -1)
 	{
-
-
         Players = new List<NetworkingPlayerState>();
 		Frames = new List<FrameState>();
 
@@ -289,6 +288,14 @@ public class NetworkManager_Server : NetworkManager_Common
 				bufferPtr[currentOffset] = 0;
 				currentOffset++;
 
+				// Reserve space for Is2D flag (1 byte) and player position, orientation, scale
+				// Max size: 1 byte Is2D + 18 bytes for 3D (3 vectors * 3 components * 2 bytes)
+				// 2D uses: 1 byte Is2D + 12 bytes (3 vectors * 2 components * 2 bytes)
+				int playerIs2DOffset = currentOffset;
+				currentOffset++;
+				int playerTransformOffset = currentOffset;
+				currentOffset += sizeof(Half) * 9; // Reserve max space (3D)
+
 				// Write SoundNames list
 				currentOffset = WriteStringListToBuffer(bufferPtr, currentOffset, TCP_INIT_PACKET_SIZE, SoundNames);
 
@@ -328,6 +335,43 @@ public class NetworkManager_Server : NetworkManager_Common
 
 					// Update the player index byte in the buffer
 					bufferPtr[playerIndexOffset] = (byte)playerIndex;
+
+					// Write player position, orientation, scale as half floats
+					NetworkingPlayerState playerState = Players[playerIndex];
+					Node playerNode = GodotObject.InstanceFromId(playerState.InGameObjectInstanceID) as Node;
+
+					if (playerNode is Node2D node2D)
+					{
+						// 2D player
+						bufferPtr[playerIs2DOffset] = 1;
+						playerState.Is2D = true;
+						// Position (2 half floats)
+						*(Half*)(bufferPtr + playerTransformOffset) = (Half)node2D.Position.X;
+						*(Half*)(bufferPtr + playerTransformOffset + 2) = (Half)node2D.Position.Y;
+						// Orientation (1 half float - rotation is a single float in 2D)
+						*(Half*)(bufferPtr + playerTransformOffset + 4) = (Half)node2D.Rotation;
+						// Scale (2 half floats)
+						*(Half*)(bufferPtr + playerTransformOffset + 6) = (Half)node2D.Scale.X;
+						*(Half*)(bufferPtr + playerTransformOffset + 8) = (Half)node2D.Scale.Y;
+					}
+					else if (playerNode is Node3D node3D)
+					{
+						// 3D player
+						bufferPtr[playerIs2DOffset] = 0;
+						playerState.Is2D = false;
+						// Position (3 half floats)
+						*(Half*)(bufferPtr + playerTransformOffset) = (Half)node3D.Position.X;
+						*(Half*)(bufferPtr + playerTransformOffset + 2) = (Half)node3D.Position.Y;
+						*(Half*)(bufferPtr + playerTransformOffset + 4) = (Half)node3D.Position.Z;
+						// Orientation (3 half floats)
+						*(Half*)(bufferPtr + playerTransformOffset + 6) = (Half)node3D.Rotation.X;
+						*(Half*)(bufferPtr + playerTransformOffset + 8) = (Half)node3D.Rotation.Y;
+						*(Half*)(bufferPtr + playerTransformOffset + 10) = (Half)node3D.Rotation.Z;
+						// Scale (3 half floats)
+						*(Half*)(bufferPtr + playerTransformOffset + 12) = (Half)node3D.Scale.X;
+						*(Half*)(bufferPtr + playerTransformOffset + 14) = (Half)node3D.Scale.Y;
+						*(Half*)(bufferPtr + playerTransformOffset + 16) = (Half)node3D.Scale.Z;
+					}
 
 					// Write SharedProperties for this player (excludes their own player object)
 					NetworkingPlayerState player = Players[playerIndex];
@@ -701,9 +745,40 @@ public class NetworkManager_Server : NetworkManager_Common
 		}
 	}
 
+	/// <summary>
+	/// Updates all player Godot objects with the position, orientation, scale and velocity
+	/// from their corresponding NetworkingPlayerState.
+	/// </summary>
+	public void UpdatePlayerObjectsWithPosition()
+	{
+		foreach (NetworkingPlayerState player in Players)
+		{
+			Node playerNode = GodotObject.InstanceFromId(player.InGameObjectInstanceID) as Node;
+			if (playerNode == null) continue;
+
+			if (player.Is2D && playerNode is Node2D node2D)
+			{
+				node2D.Position = new Vector2(player.Position.X, player.Position.Y);
+				node2D.Rotation = player.Orientation.Z;
+				node2D.Scale = new Vector2(player.Scale.X, player.Scale.Y);
+				// Note: Node2D doesn't have a Velocity property, that's handled by physics or manually
+			}
+			else if (playerNode is Node3D node3D)
+			{
+				node3D.Position = player.Position;
+				node3D.Rotation = player.Orientation;
+				node3D.Scale = player.Scale;
+				// Note: Node3D doesn't have a Velocity property, that's handled by physics or manually
+			}
+		}
+	}
+
 	// on the server, construct packets to be sent to each player.
 	public void TickNetwork_Server()
 	{
+		// Update player objects with their NetworkingPlayerState values before broadcasting
+		UpdatePlayerObjectsWithPosition();
+
 		FrameState newFrameState = CreateFrameStateFromCurrentObjects_Server(FrameCount);
 		Frames.Add(newFrameState);
 
@@ -735,6 +810,104 @@ public class NetworkManager_Server : NetworkManager_Common
 					// Write frame index (3 bytes)
 					WriteInt24ToBuffer(bufferPtr, currentOffset, FrameCount);
 					currentOffset += 3;
+
+					// Write player transform data with change detection
+					// Get current player node transform
+					Node playerNode = GodotObject.InstanceFromId(player.InGameObjectInstanceID) as Node;
+					byte playerTransformMask = 0;
+					int maskOffset = currentOffset;
+					currentOffset++; // Reserve byte for mask
+
+					Vector3 currentPos = Vector3.Zero;
+					Vector3 currentOri = Vector3.Zero;
+					Vector3 currentVel = player.Velocity;
+					Vector3 currentScale = Vector3.One;
+
+					if (player.Is2D && playerNode is Node2D node2D)
+					{
+						currentPos = new Vector3(node2D.Position.X, node2D.Position.Y, 0);
+						currentOri = new Vector3(0, 0, node2D.Rotation);
+						currentScale = new Vector3(node2D.Scale.X, node2D.Scale.Y, 1);
+					}
+					else if (playerNode is Node3D node3D)
+					{
+						currentPos = node3D.Position;
+						currentOri = node3D.Rotation;
+						currentScale = node3D.Scale;
+					}
+
+					// Check which values changed and write them
+					if (currentPos != player.LastSentPosition)
+					{
+						playerTransformMask |= (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kPosition;
+						*(Half*)(bufferPtr + currentOffset) = (Half)currentPos.X;
+						*(Half*)(bufferPtr + currentOffset + 2) = (Half)currentPos.Y;
+						if (player.Is2D)
+						{
+							currentOffset += 4;
+						}
+						else
+						{
+							*(Half*)(bufferPtr + currentOffset + 4) = (Half)currentPos.Z;
+							currentOffset += 6;
+						}
+						player.LastSentPosition = currentPos;
+					}
+
+					if (currentOri != player.LastSentOrientation)
+					{
+						playerTransformMask |= (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kOrientation;
+						if (player.Is2D)
+						{
+							*(Half*)(bufferPtr + currentOffset) = (Half)currentOri.Z; // 2D rotation is stored in Z
+							currentOffset += 2;
+						}
+						else
+						{
+							*(Half*)(bufferPtr + currentOffset) = (Half)currentOri.X;
+							*(Half*)(bufferPtr + currentOffset + 2) = (Half)currentOri.Y;
+							*(Half*)(bufferPtr + currentOffset + 4) = (Half)currentOri.Z;
+							currentOffset += 6;
+						}
+						player.LastSentOrientation = currentOri;
+					}
+
+					if (currentVel != player.LastSentVelocity)
+					{
+						playerTransformMask |= (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kVelocity;
+						*(Half*)(bufferPtr + currentOffset) = (Half)currentVel.X;
+						*(Half*)(bufferPtr + currentOffset + 2) = (Half)currentVel.Y;
+						if (player.Is2D)
+						{
+							currentOffset += 4;
+						}
+						else
+						{
+							*(Half*)(bufferPtr + currentOffset + 4) = (Half)currentVel.Z;
+							currentOffset += 6;
+						}
+						player.LastSentVelocity = currentVel;
+					}
+
+					if (currentScale != player.LastSentScale)
+					{
+						playerTransformMask |= (byte)NetworkingPlayerState.PlayerStateAndTransmissionBitMasks.kScale;
+						*(Half*)(bufferPtr + currentOffset) = (Half)currentScale.X;
+						*(Half*)(bufferPtr + currentOffset + 2) = (Half)currentScale.Y;
+						if (player.Is2D)
+						{
+							currentOffset += 4;
+						}
+						else
+						{
+							*(Half*)(bufferPtr + currentOffset + 4) = (Half)currentScale.Z;
+							currentOffset += 6;
+						}
+						player.LastSentScale = currentScale;
+					}
+
+					// Write the mask byte at the reserved offset
+					bufferPtr[maskOffset] = playerTransformMask;
 
 					// Skip object count for now, write it after we know how many objects
 					int objectCountOffset = currentOffset;
