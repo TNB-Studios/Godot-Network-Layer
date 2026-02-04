@@ -18,7 +18,7 @@ public class NetworkManager_Server : NetworkManager_Common
 	private GameSpecificDataWriter gameSpecificDataWriterCallback = null;
 
 	// Callback delegate for creating a player's in-world object
-	public delegate NetworkedNode3D CreatePlayerObjectInWorld(int playerIndex);
+	public delegate NetworkedNode3D CreatePlayerObjectInWorld(int playerIndex, NetworkingPlayerState player);
 	private CreatePlayerObjectInWorld createPlayerObjectCallback = null;
 
 	private bool gameStarted = false;
@@ -243,7 +243,7 @@ public class NetworkManager_Server : NetworkManager_Common
 			// now create an in world object for the player, so it gets transmitted across and other players can see them.
 			if (createPlayerObjectCallback != null)
 			{
-				NetworkedNode3D playerNode = createPlayerObjectCallback(i);
+				NetworkedNode3D playerNode = createPlayerObjectCallback(i, newPlayer);
 				if (playerNode != null)
 				{
 					newPlayer.InGameObjectInstanceID = playerNode.GetInstanceId();
@@ -825,14 +825,14 @@ public class NetworkManager_Server : NetworkManager_Common
 
 					if (player.Is2D && playerNode is Node2D node2D)
 					{
-						currentPos = new Vector3(node2D.Position.X, node2D.Position.Y, 0);
-						currentOri = new Vector3(0, 0, node2D.Rotation);
-						currentScale = new Vector3(node2D.Scale.X, node2D.Scale.Y, 1);
+						currentPos = new Vector3(player.Position.X, player.Position.Y, 0);
+						currentOri = new Vector3(0, 0, player.Orientation.Y);
+						currentScale = new Vector3(player.Scale.X, player.Scale.Y, 1);
 					}
 					else if (playerNode is Node3D node3D)
 					{
-						currentPos = node3D.Position;
-						currentOri = node3D.Rotation;
+						currentPos = player.Position;
+						currentOri = player.Orientation;
 						currentScale = node3D.Scale;
 					}
 
