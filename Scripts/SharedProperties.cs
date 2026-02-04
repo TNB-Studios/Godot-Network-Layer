@@ -55,12 +55,12 @@ public unsafe class SharedProperties
 		kParticleEffect = 0x80,
 		kIs2D = 0x100,          // Stored in top 2 bits of ObjectIndex
 		kIs2DInMask = (kIs2D << 6),
-		kOnlySendYPos = 0x200,   // Stored in top 2 bits of ObjectIndex
-		kOnlySendYposInMask = (kOnlySendYPos << 6)
+		kCompressedOrientationAndVelocity = 0x200,   // Stored in top 2 bits of ObjectIndex - forces compressed format for Orientation and Velocity
+		kCompressedOrientationAndVelocityInMask = (kCompressedOrientationAndVelocity << 6)
 	}
 
 	// Constants for ObjectIndex bit manipulation
-	// Top 2 bits of ObjectIndex are used for kIs2D and kOnlySendYPos flags
+	// Top 2 bits of ObjectIndex are used for kIs2D and kCompressedOrientationAndVelocity flags
 	private const short ObjectIndexMask = 0x3FFF;        // 14 bits for actual index (max 16384 objects)
 
 	public SharedProperties()
@@ -79,7 +79,7 @@ public unsafe class SharedProperties
 	{
 		if (currentBufferOffset == 0)
 		{
-			// ObjectIndex already has the kIs2DInMask and kOnlySendYPosInMask flags set in its top bits
+			// ObjectIndex already has the kIs2DInMask and kCompressedOrientationAndVelocityInMask flags set in its top bits
 			// Just write it directly to the buffer
 			*(short*)(currentBuffer) = ObjectIndex;
 			currentBufferOffset += 3;
@@ -204,22 +204,25 @@ public unsafe class SharedProperties
 
 	/// <summary>
 	/// Reads object data from buffer and applies to target node.
-	/// The mask parameter should include the extended flags (kIs2D, kOnlySendYPos) extracted from ObjectIndex.
+	/// The mask parameter should include the extended flags (kIs2D, kCompressedOrientationAndVelocity) extracted from ObjectIndex.
 	/// </summary>
 	public static unsafe int ReadDataForObject(byte* buffer, Node targetNode, short mask)
 	{
 		int offset = 3; // Skip ObjectIndex (2 bytes) + Mask (1 byte)
 		bool is2D = (mask & (short)SharedObjectValueSetMask.kIs2D) != 0;
-		bool onlySendYPos = (mask & (short)SharedObjectValueSetMask.kOnlySendYPos) != 0;
+		bool compressedOrientationAndVelocity = (mask & (short)SharedObjectValueSetMask.kCompressedOrientationAndVelocity) != 0;
 
 		// Get the 3D node for setting properties (or null if 2D)
 		Node3D node3D = targetNode as Node3D;
 		Node2D node2D = targetNode as Node2D;
 
-        // Velocity
+        // Velocity - use compressed format if flag is set AND not 2D (compressed uses 3D direction table)
         if ((mask & (short)SharedObjectValueSetMask.kVelocity) != 0)
         {
-            Vector3 velocity = ReadVectorByCompression(buffer, ref offset, VelocityCompression, is2D);
+            SetCompressionOnVectors velocityMode = (compressedOrientationAndVelocity && !is2D)
+                ? SetCompressionOnVectors.KCompressed
+                : VelocityCompression;
+            Vector3 velocity = ReadVectorByCompression(buffer, ref offset, velocityMode, is2D);
             if (targetNode is NetworkedNode3D networkedNode3D)
             {
                 networkedNode3D.Velocity = velocity;
@@ -233,48 +236,20 @@ public unsafe class SharedProperties
         // Position (never uses compressed format, only Full or Half)
         if ((mask & (short)SharedObjectValueSetMask.kPosition) != 0)
 		{
-			if (onlySendYPos)
-			{
-				// Only Y was sent - read it and preserve X/Z
-				float y;
-				if (PositionCompression == SetCompressionOnVectors.kHalf)
-				{
-					y = (float)*(Half*)(buffer + offset);
-					offset += sizeof(Half);
-				}
-				else
-				{
-					y = *(float*)(buffer + offset);
-					offset += sizeof(float);
-				}
-
-				if (node3D != null)
-				{
-					Vector3 pos = node3D.GlobalPosition;
-					pos.Y = y;
-					node3D.GlobalPosition = pos;
-				}
-				else if (node2D != null)
-				{
-					Vector2 pos = node2D.GlobalPosition;
-					pos.Y = y;
-					node2D.GlobalPosition = pos;
-				}
-			}
-			else
-			{
-				Vector3 position = ReadVectorByCompression(buffer, ref offset, PositionCompression, is2D);
-				if (node3D != null)
-					node3D.GlobalPosition = position;
-				else if (node2D != null)
-					node2D.GlobalPosition = new Vector2(position.X, position.Y);
-			}
+			Vector3 position = ReadVectorByCompression(buffer, ref offset, PositionCompression, is2D);
+			if (node3D != null)
+				node3D.GlobalPosition = position;
+			else if (node2D != null)
+				node2D.GlobalPosition = new Vector2(position.X, position.Y);
 		}
 
-		// Orientation
+		// Orientation - use compressed format if flag is set AND not 2D (compressed uses 3D direction table)
 		if ((mask & (short)SharedObjectValueSetMask.kOrientation) != 0)
 		{
-			Vector3 orientation = ReadVectorByCompression(buffer, ref offset, OrientationCompression, is2D);
+			SetCompressionOnVectors orientationMode = (compressedOrientationAndVelocity && !is2D)
+				? SetCompressionOnVectors.KCompressed
+				: OrientationCompression;
+			Vector3 orientation = ReadVectorByCompression(buffer, ref offset, orientationMode, is2D);
 			if (node3D != null)
 				node3D.Rotation = orientation;
 			else if (node2D != null)
@@ -370,6 +345,16 @@ public unsafe class SharedProperties
 				offset++;
 			}
 
+			// Store the model index on the NetworkedNode
+			if (targetNode is NetworkedNode3D networkedNode3DModel)
+			{
+				networkedNode3DModel.currentModelIndex = currentModel;
+			}
+			else if (targetNode is NetworkedNode2D networkedNode2DModel)
+			{
+				networkedNode2DModel.currentModelIndex = currentModel;
+			}
+
 			// Apply model via callback (handles multi-pass rendering)
 			Globals.worldManager_client.networkManager_client.ApplyModelToNode(targetNode, currentModel);
 		}
@@ -389,6 +374,16 @@ public unsafe class SharedProperties
 				offset++;
 			}
 
+			// Store the animation index on the NetworkedNode
+			if (targetNode is NetworkedNode3D networkedNode3DAnim)
+			{
+				networkedNode3DAnim.currentAnimationIndex = currentAnimation;
+			}
+			else if (targetNode is NetworkedNode2D networkedNode2DAnim)
+			{
+				networkedNode2DAnim.currentAnimationIndex = currentAnimation;
+			}
+
 			// TODO: Apply animation to targetNode (will be synced to depth viewport via SyncNodeProperties)
 		}
 
@@ -405,6 +400,16 @@ public unsafe class SharedProperties
 			{
 				particleEffect = buffer[offset];
 				offset++;
+			}
+
+			// Store the particle effect index on the NetworkedNode
+			if (targetNode is NetworkedNode3D networkedNode3DParticle)
+			{
+				networkedNode3DParticle.currentParticleEffectIndex = particleEffect;
+			}
+			else if (targetNode is NetworkedNode2D networkedNode2DParticle)
+			{
+				networkedNode2DParticle.currentParticleEffectIndex = particleEffect;
 			}
 
 			// TODO: Apply particle effect to targetNode (will be synced to depth viewport via SyncNodeProperties)
@@ -440,7 +445,7 @@ public unsafe class SharedProperties
 		objectIndex = (short)(encodedIndex & ObjectIndexMask);
 
 		// Extract extended flags from top 2 bits (14-15) and shift to mask positions (8-9)
-		// kIs2DInObjectIndex (0x4000) -> kIs2D (0x100), kOnlySendYPosInObjectIndex (0x8000) -> kOnlySendYPos (0x200)
+		// kIs2DInMask (0x4000) -> kIs2D (0x100), kCompressedOrientationAndVelocityInMask (0x8000) -> kCompressedOrientationAndVelocity (0x200)
 		short extendedFlags = (short)((encodedIndex >> 6) & 0x300);
 
 		// Combine base mask with extended flags
@@ -454,7 +459,7 @@ public unsafe class SharedProperties
 
 		// Extract flags from ObjectIndex (stored in top bits)
 		bool is2D = (ObjectIndex & (short)SharedObjectValueSetMask.kIs2DInMask) != 0;
-		bool onlySendYPos = (ObjectIndex & unchecked((short)SharedObjectValueSetMask.kOnlySendYposInMask)) != 0;
+		bool compressedOrientationAndVelocity = (ObjectIndex & unchecked((short)SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask)) != 0;
 
 		// start looking at each value to see what we might put in the buffer for this object.
 		// Note: Position and Scale never use compressed format, only Full or Half
@@ -472,7 +477,12 @@ public unsafe class SharedProperties
 			if (sendVelocity)
 			{
 				SetAddedObjectToBuffer(SharedObjectValueSetMask.kVelocity);
-				if (VelocityCompression == SetCompressionOnVectors.kFull)
+				// Use compressed format if flag is set AND not 2D (compressed uses 3D direction table)
+				if (compressedOrientationAndVelocity && !is2D)
+				{
+					CopyVectorToBufferCompressed(Velocity, is2D);
+				}
+				else if (VelocityCompression == SetCompressionOnVectors.kFull)
 				{
 					CopyVectorToBuffer(Velocity, is2D);
 				}
@@ -509,15 +519,7 @@ public unsafe class SharedProperties
 			if (sendPosition)
 			{
 				SetAddedObjectToBuffer(SharedObjectValueSetMask.kPosition);
-				if (onlySendYPos)
-				{
-					// Only send Y component
-					if (PositionCompression == SetCompressionOnVectors.kHalf)
-						CopyHalfToBuffer(Position.Y);
-					else
-						CopyFloatToBuffer(Position.Y);
-				}
-				else if (PositionCompression == SetCompressionOnVectors.kHalf)
+				if (PositionCompression == SetCompressionOnVectors.kHalf)
 				{
 					CopyVectorToBufferAsHalf(Position, is2D);
 				}
@@ -540,7 +542,12 @@ public unsafe class SharedProperties
 			if (sendOrientation)
 			{
 				SetAddedObjectToBuffer(SharedObjectValueSetMask.kOrientation);
-				if (OrientationCompression == SetCompressionOnVectors.kFull)
+				// Use compressed format if flag is set AND not 2D (compressed uses 3D direction table)
+				if (compressedOrientationAndVelocity && !is2D)
+				{
+					CopyVectorToBufferCompressed(Orientation, is2D);
+				}
+				else if (OrientationCompression == SetCompressionOnVectors.kFull)
 				{
 					CopyVectorToBuffer(Orientation, is2D);
 				}
@@ -848,30 +855,33 @@ public unsafe class SharedProperties
 	/// <summary>
 	/// Calculates the total byte size of a SharedProperty entry given its mask.
 	/// This works because compression settings are compile-time constants.
-	/// The mask should be a short to include the extended flags (kIs2D, kOnlySendYPos).
+	/// The mask should be a short to include the extended flags (kIs2D, kCompressedOrientationAndVelocity).
 	/// </summary>
 	public static int CalculateSizeFromMask(short mask)
 	{
 		int size = 3; // ObjectIndex (2 bytes) + Mask (1 byte)
 		bool is2D = (mask & (short)SharedObjectValueSetMask.kIs2D) != 0;
-		bool onlySendYPos = (mask & (short)SharedObjectValueSetMask.kOnlySendYPos) != 0;
+		bool compressedOrientationAndVelocity = (mask & (short)SharedObjectValueSetMask.kCompressedOrientationAndVelocity) != 0;
 
 		if ((mask & (short)SharedObjectValueSetMask.kPosition) != 0)
 		{
-			if (onlySendYPos)
-				size += (PositionCompression == SetCompressionOnVectors.kHalf) ? sizeof(Half) : sizeof(float);
-			else
-				size += GetVectorSizeForCompression(PositionCompression, is2D);
+			size += GetVectorSizeForCompression(PositionCompression, is2D);
 		}
 
 		if ((mask & (short)SharedObjectValueSetMask.kOrientation) != 0)
-			size += GetVectorSizeForCompression(OrientationCompression, is2D);
+		{
+			var orientationMode = (compressedOrientationAndVelocity && !is2D) ? SetCompressionOnVectors.KCompressed : OrientationCompression;
+			size += GetVectorSizeForCompression(orientationMode, is2D);
+		}
 
 		if ((mask & (short)SharedObjectValueSetMask.kScale) != 0)
 			size += GetVectorSizeForCompression(ScaleCompression, is2D);
 
 		if ((mask & (short)SharedObjectValueSetMask.kVelocity) != 0)
-			size += GetVectorSizeForCompression(VelocityCompression, is2D);
+		{
+			var velocityMode = (compressedOrientationAndVelocity && !is2D) ? SetCompressionOnVectors.KCompressed : VelocityCompression;
+			size += GetVectorSizeForCompression(velocityMode, is2D);
+		}
 
 		if ((mask & (short)SharedObjectValueSetMask.kSound) != 0)
 		{

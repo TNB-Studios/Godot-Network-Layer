@@ -523,6 +523,10 @@ public class NetworkManager_Server : NetworkManager_Common
 					{
 						newSharedProperty.PlayingSound = (short)(-newSharedProperty.PlayingSound - 2);
 					}
+					if (networkedNode3D.CompresedVelocityAndOrientation)
+					{
+						newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask);
+					}
                 }
 				else
 				{

@@ -23,6 +23,53 @@ public partial class NetworkedNode3D : Node3D
             }
         }
     }
+    public bool CompresedVelocityAndOrientation = false;
+
+    public int currentModelIndex = -1;
+    public int currentAnimationIndex = -1;
+    public int currentParticleEffectIndex = -1;
+
+    /// <summary>
+    /// Sets the model for this networked node by index into the loaded models list.
+    /// Removes any existing model children and instantiates the new model.
+    /// </summary>
+    public void SetModel(int modelIndex)
+    {
+        currentModelIndex = modelIndex;
+        if (modelIndex < 0) return;
+
+        // Remove any existing model children (nodes with a SceneFilePath)
+        foreach (Node child in GetChildren())
+        {
+            if (!string.IsNullOrEmpty(child.SceneFilePath))
+            {
+                child.QueueFree();
+            }
+        }
+
+        // Instantiate and add the new model
+        Node3D modelInstance = Globals.worldManager_server.networkManager_server.LoadedModels[modelIndex].Instantiate<Node3D>();
+        AddChild(modelInstance);
+    }
+
+    /// <summary>
+    /// Sets the animation for this networked node by index into the loaded animations list.
+    /// </summary>
+    public void SetAnimation(int animationIndex)
+    {
+        currentAnimationIndex = animationIndex;
+        // TODO: Apply animation when animation system is implemented
+    }
+
+    /// <summary>
+    /// Sets the particle effect for this networked node by index into the loaded particle effects list.
+    /// </summary>
+    public void SetParticleEffect(int particleEffectIndex)
+    {
+        currentParticleEffectIndex = particleEffectIndex;
+        // TODO: Apply particle effect when particle system is implemented
+    }
+
     public float SoundRadius = 50.0f;
     public bool SoundIs2D = false;
     public override void _Process(double delta)
