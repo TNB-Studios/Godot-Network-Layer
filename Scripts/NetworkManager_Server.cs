@@ -187,28 +187,44 @@ public class NetworkManager_Server : NetworkManager_Common
 		createPlayerObjectCallback = callback;
 	}
 
-	public void AddPrecacheAnimationName_Server(string animationName)
+	public void AddPrecacheAnimationName_Server(string animationName, int index)
 	{
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Animations at this point!!");
-		AnimationNames.Add(animationName);
+		while (AnimationNames.Count < index + 1)
+		{
+			AnimationNames.Add(null);
+		}
+		AnimationNames[index] = animationName;
 	}
 
-	public void AddPrecacheModelName_Server(string modelName)
+	public void AddPrecacheModelName_Server(string modelName, int index)
 	{
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Models at this point!!");
-		ModelNames.Add(modelName);
+		while (ModelNames.Count < index + 1)
+		{
+			ModelNames.Add(null);
+		}
+		ModelNames[index] = modelName;
 	}
 
-	public void AddPrecacheSoundName_Server(string soundName)
+	public void AddPrecacheSoundName_Server(string soundName, int index)
 	{
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Sounds at this point!!");
-		SoundNames.Add(soundName);
+		while (SoundNames.Count < index + 1)
+		{
+			SoundNames.Add(null);
+		}
+		SoundNames[index] = soundName;
 	}
 
-	public void AddPrecacheParticleEffectName_Server(string particleEffectName)
+	public void AddPrecacheParticleEffectName_Server(string particleEffectName, int index)
 	{
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Particle Effects at this point!!");
-		ParticleEffectNames.Add(particleEffectName);
+		while (ParticleEffectNames.Count < index + 1)
+		{
+			ParticleEffectNames.Add(null);
+		}
+		ParticleEffectNames[index] = particleEffectName;
 	}
 
 	public void InitNewGame_Server()
