@@ -573,11 +573,26 @@ public class NetworkManager_Client : NetworkManager_Common
 	/// </summary>
 	public void FramePacketReceived_Client(byte[] incomingBuffer, int bufferSize)
 	{
-		int currentOffset = 0;
+		// Check compression flag (first byte)
+		byte[] processBuffer;
+		int currentOffset;
+
+		if (incomingBuffer[0] != 0)
+		{
+			// Compressed - decompress the payload (everything after flag byte)
+			processBuffer = DecompressPayload(incomingBuffer, 1, bufferSize - 1);
+			currentOffset = 0;
+		}
+		else
+		{
+			// Uncompressed - skip the flag byte
+			processBuffer = incomingBuffer;
+			currentOffset = 1;
+		}
 
 		unsafe
 		{
-			fixed (byte* bufferPtr = incomingBuffer)
+			fixed (byte* bufferPtr = processBuffer)
 			{
 				// Read frame index (3 bytes)
 				int frameIndex = ReadInt24FromBuffer(bufferPtr, currentOffset);
@@ -695,13 +710,13 @@ public class NetworkManager_Client : NetworkManager_Common
 				int bytesRead = ReadSharedPropertiesFromBuffer_Client(
 					bufferPtr,
 					currentOffset,
-					incomingBuffer.Length,
+					processBuffer.Length,
 					objectCount
 				);
 				currentOffset += bytesRead;
 
 				// Process deleted nodes using shared function
-				ProcessDeletedNodesFromBuffer_Client(bufferPtr, currentOffset, incomingBuffer.Length);
+				ProcessDeletedNodesFromBuffer_Client(bufferPtr, currentOffset, processBuffer.Length);
 			}
 		}
 

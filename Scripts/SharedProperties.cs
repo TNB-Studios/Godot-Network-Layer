@@ -18,10 +18,10 @@ public unsafe class SharedProperties
 	}
 	
 	// these settings determine how the data for specific vectors is stored in the buffer, so it can be modified as needed.
-	static readonly SetCompressionOnVectors PositionCompression = SetCompressionOnVectors.kFull;
-	static readonly SetCompressionOnVectors OrientationCompression = SetCompressionOnVectors.kFull;
-	static readonly SetCompressionOnVectors ScaleCompression = SetCompressionOnVectors.kFull;
-	static readonly SetCompressionOnVectors VelocityCompression = SetCompressionOnVectors.kFull;
+	static readonly SetCompressionOnVectors PositionCompression = SetCompressionOnVectors.kHalf;
+	static readonly SetCompressionOnVectors OrientationCompression = SetCompressionOnVectors.kHalf;
+	static readonly SetCompressionOnVectors ScaleCompression = SetCompressionOnVectors.kHalf;
+	static readonly SetCompressionOnVectors VelocityCompression = SetCompressionOnVectors.kHalf;
 
 	public ObjectTypeForFrameTransmission typeForFrameTransmission = ObjectTypeForFrameTransmission.kSendAll;  // only used on server side. This details if we should bother to send stuff like position per frame if we've already set velocity
 	public float ViewRadius { get; set;} = 0; // only used on transmission side.
@@ -315,8 +315,8 @@ public unsafe class SharedProperties
                 }
                 else
                 {
-                    float soundRadius = (float)*(Half*)(buffer + offset);
-                    offset += 2;
+                    float soundRadius = (float)buffer[offset];
+                    offset++;
 
                     AudioStreamPlayer3D player = new AudioStreamPlayer3D();
                     targetNode.AddChild(player);
@@ -612,8 +612,8 @@ public unsafe class SharedProperties
 				// only send radius if we are playing a 3D sound, ie the PlayingSound value is not > 0
 				if (PlayingSound > -1)
 				{
-					*(Half*)(currentBuffer + currentBufferOffset) = (Half)SoundRadius;
-					currentBufferOffset += sizeof(Half);
+					currentBuffer[currentBufferOffset] = (byte)Mathf.Clamp(SoundRadius, 0, 255);
+					currentBufferOffset++;
 				}
 			}
 		}
@@ -886,7 +886,7 @@ public unsafe class SharedProperties
 		if ((mask & (short)SharedObjectValueSetMask.kSound) != 0)
 		{
 			size += (Globals.networkManager.SoundNames.Count > 255) ? 2 : 1;  // Sound index
-			size += 2;  // SoundRadius as Half
+			size += 1;  // SoundRadius as byte
 		}
 
 		if ((mask & (short)SharedObjectValueSetMask.kModel) != 0)

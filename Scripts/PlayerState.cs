@@ -28,7 +28,7 @@ public class NetworkingPlayerState
         kPlayerTeleported = 0x80
     }
 
-    public static readonly int MAX_UDP_PACKET_SIZE = 1400;
+    public static readonly int MAX_UDP_PACKET_SIZE = 2048;
     public byte[] CurrentUDPPlayerPacket = new byte[MAX_UDP_PACKET_SIZE];
     public int CurrentUDPPlayerPacketSize = 0;
 

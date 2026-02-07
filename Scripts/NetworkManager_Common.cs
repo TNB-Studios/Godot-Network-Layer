@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
 using Godot;
 
 /// <summary>
@@ -129,5 +131,27 @@ public class NetworkManager_Common
 	{
 		return bufferPtr[offset] | (bufferPtr[offset + 1] << 8) | (bufferPtr[offset + 2] << 16);
 	}
-	
+
+	protected static byte[] CompressPayload(byte[] data, int offset, int count)
+	{
+		using (var output = new MemoryStream())
+		{
+			using (var deflate = new DeflateStream(output, CompressionLevel.Fastest))
+			{
+				deflate.Write(data, offset, count);
+			}
+			return output.ToArray();
+		}
+	}
+
+	protected static byte[] DecompressPayload(byte[] data, int offset, int count)
+	{
+		using (var input = new MemoryStream(data, offset, count))
+		using (var deflate = new DeflateStream(input, CompressionMode.Decompress))
+		using (var output = new MemoryStream())
+		{
+			deflate.CopyTo(output);
+			return output.ToArray();
+		}
+	}
 }

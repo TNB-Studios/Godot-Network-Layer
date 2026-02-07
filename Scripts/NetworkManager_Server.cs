@@ -23,6 +23,9 @@ public class NetworkManager_Server : NetworkManager_Common
 
 	private bool gameStarted = false;
 
+	// Set to true to force UDP compression on next tick
+	public bool ForceUdpCompression = false;
+
 	private const int TCP_INIT_PACKET_SIZE = 65536;
 
 	public NetworkManager_Server(Node rootSceneNode) : base(rootSceneNode)
@@ -806,7 +809,7 @@ public class NetworkManager_Server : NetworkManager_Common
 		foreach(NetworkingPlayerState player in Players)
 		{
 			byte[] playerBuffer = player.CurrentUDPPlayerPacket;
-			int currentOffset = 0;
+			int currentOffset = 1; // Reserve byte 0 for compression flag
 
 			// Find the last acked framestate for delta compression
 			FrameState lastAckedFrameState = null;
@@ -973,6 +976,23 @@ public class NetworkManager_Server : NetworkManager_Common
 				}
 			}
 
+			// Handle UDP packet compression
+			int payloadSize = player.CurrentUDPPlayerPacketSize - 1; // Exclude compression flag byte
+			bool shouldCompress = ForceUdpCompression || (!player.IsOnServer && payloadSize > 1300);
+
+			if (shouldCompress)
+			{
+				byte[] compressed = CompressPayload(playerBuffer, 1, payloadSize);
+				GD.Print($"UDP Compression: {payloadSize} -> {compressed.Length} bytes");
+				System.Buffer.BlockCopy(compressed, 0, playerBuffer, 1, compressed.Length);
+				playerBuffer[0] = 1;
+				player.CurrentUDPPlayerPacketSize = 1 + compressed.Length;
+			}
+			else
+			{
+				playerBuffer[0] = 0;
+			}
+
 			// transmit the packet to the player
 			if (player.IsOnServer)
 			{
@@ -991,6 +1011,7 @@ public class NetworkManager_Server : NetworkManager_Common
 		// clear out nodes that are deleted from this frame.
 		Node3DIDsDeletedThisFrame = new List<short>();
 		FrameCount++;
+
 	}
 
 
