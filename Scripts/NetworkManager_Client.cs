@@ -21,6 +21,18 @@ public class NetworkManager_Client : NetworkManager_Common
 	public delegate void UpdateNodeModel(Node node, short modelIndex);
 	private UpdateNodeModel updateNodeModelCallback = null;
 
+	// Callback delegate for playing a sound on a node
+	public delegate void ApplySound(Node node, short soundIndex, float soundRadius, bool is2D);
+	private ApplySound applySoundCallback = null;
+
+	// Callback delegate for setting an animation on a node
+	public delegate void ApplyAnimation(Node node, short animationIndex);
+	private ApplyAnimation applyAnimationCallback = null;
+
+	// Callback delegate for applying a particle effect to a node
+	public delegate void ApplyParticleEffect(Node node, short particleEffectIndex);
+	private ApplyParticleEffect applyParticleEffectCallback = null;
+
 	// Callback delegate for syncing node properties after all updates (for multi-pass rendering)
 	public delegate void SyncNodeProperties(Node node);
 	private SyncNodeProperties syncNodePropertiesCallback = null;
@@ -147,6 +159,21 @@ public class NetworkManager_Client : NetworkManager_Common
 		deleteNodeFromClientSceneCallback = callback;
 	}
 
+	public void RegisterApplySoundCallback(ApplySound callback)
+	{
+		applySoundCallback = callback;
+	}
+
+	public void RegisterApplyAnimationCallback(ApplyAnimation callback)
+	{
+		applyAnimationCallback = callback;
+	}
+
+	public void RegisterApplyParticleEffectCallback(ApplyParticleEffect callback)
+	{
+		applyParticleEffectCallback = callback;
+	}
+
 	public void RegisterInitialGamePacketFromServerCallback(GotStartGamePacketFromServer callback)
 	{
 		gotStartGamePacketFromServer = callback;
@@ -162,49 +189,13 @@ public class NetworkManager_Client : NetworkManager_Common
 		{
 			updateNodeModelCallback(targetNode, modelIndex);
 		}
-		else
+		else if (targetNode is NetworkedNode3D node3D)
 		{
-			// Default behavior - apply model directly to the node
-			ApplyModelToNodeDirect(targetNode, modelIndex);
+			node3D.SetModel(modelIndex, LoadedModels);
 		}
-	}
-
-	/// <summary>
-	/// Directly applies a model to a node without going through the callback.
-	/// Used as fallback when no callback is registered.
-	/// </summary>
-	public void ApplyModelToNodeDirect(Node targetNode, short modelIndex)
-	{
-		if (modelIndex >= 0 && modelIndex < ModelNames.Count)
+		else if (targetNode is NetworkedNode2D node2D)
 		{
-			string modelPath = "res://" + ModelNames[modelIndex];
-
-			// Check if we already have this model attached
-			bool modelAlreadyAttached = false;
-			foreach (Node child in targetNode.GetChildren())
-			{
-				if (child.SceneFilePath == modelPath)
-				{
-					modelAlreadyAttached = true;
-					break;
-				}
-			}
-
-			if (!modelAlreadyAttached)
-			{
-				// Remove any existing model children first
-				foreach (Node child in targetNode.GetChildren())
-				{
-					if (!string.IsNullOrEmpty(child.SceneFilePath))
-					{
-						child.QueueFree();
-					}
-				}
-
-				// find precached model and attach the new model
-				Node3D modelInstance = LoadedModels[modelIndex].Instantiate<Node3D>();
-				targetNode.AddChild(modelInstance);
-			}
+			node2D.SetModel(modelIndex, LoadedModels);
 		}
 	}
 
@@ -216,6 +207,58 @@ public class NetworkManager_Client : NetworkManager_Common
 		if (syncNodePropertiesCallback != null)
 		{
 			syncNodePropertiesCallback(targetNode);
+		}
+	}
+
+	/// <summary>
+	/// Called by SharedProperties when a sound needs to be played on a node.
+	/// Routes through the callback if registered, otherwise handles directly.
+	/// </summary>
+	public void ApplySoundToNode(Node targetNode, short soundIndex, float soundRadius, bool is2D)
+	{
+		if (applySoundCallback != null)
+		{
+			applySoundCallback(targetNode, soundIndex, soundRadius, is2D);
+		}
+		else if (targetNode is NetworkedNode3D node3D)
+		{
+			node3D.SetSound(soundIndex, LoadedSounds, soundRadius, is2D, serverSide: false);
+		}
+		else if (targetNode is NetworkedNode2D node2D)
+		{
+			node2D.SetSound(soundIndex, LoadedSounds, soundRadius, is2D, serverSide: false);
+		}
+	}
+
+	/// <summary>
+	/// Called by SharedProperties when an animation needs to be applied to a node.
+	/// Routes through the callback if registered, otherwise handles directly.
+	/// </summary>
+	public void ApplyAnimationToNode(Node targetNode, short animationIndex)
+	{
+		if (applyAnimationCallback != null)
+		{
+			applyAnimationCallback(targetNode, animationIndex);
+		}
+	}
+
+	/// <summary>
+	/// Called by SharedProperties when a particle effect needs to be applied to a node.
+	/// Routes through the callback if registered, otherwise handles directly.
+	/// </summary>
+	public void ApplyParticleEffectToNode(Node targetNode, short particleEffectIndex)
+	{
+		if (applyParticleEffectCallback != null)
+		{
+			applyParticleEffectCallback(targetNode, particleEffectIndex);
+		}
+		else if (targetNode is NetworkedNode3D node3D)
+		{
+			node3D.SetParticleEffect(particleEffectIndex, LoadedParticleEffects, serverSide: false);
+		}
+		else if (targetNode is NetworkedNode2D node2D)
+		{
+			node2D.SetParticleEffect(particleEffectIndex, LoadedParticleEffects, serverSide: false);
 		}
 	}
 

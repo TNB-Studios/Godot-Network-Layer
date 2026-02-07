@@ -1,4 +1,5 @@
 using Godot;
+using System.Collections.Generic;
 
 /// <summary>
 /// A Node2D with built-in velocity that automatically updates position each frame.
@@ -9,20 +10,7 @@ public partial class NetworkedNode2D : Node2D
     public Vector2 Velocity = Vector2.Zero;
     private short _soundToPlay = -1;
     private float timeToResetSound = 0;
-    public short SoundToPlay
-    {
-        get => _soundToPlay;
-        set
-        {
-            _soundToPlay = value;
-            if (value != -1)
-            {
-                // Your code here - e.g., play the sound
-                AudioStream streamToPlay = Globals.worldManager_server.networkManager_server.LoadedSounds[_soundToPlay];
-                timeToResetSound = (Time.GetTicksMsec() / 1000.0f) + (float)streamToPlay.GetLength();
-            }
-        }
-    }
+    public short SoundToPlay { get => _soundToPlay; }
 
     public bool SoundIs2D = false;
 
@@ -34,7 +22,7 @@ public partial class NetworkedNode2D : Node2D
     /// Sets the model for this networked node by index into the loaded models list.
     /// Removes any existing model children and instantiates the new model.
     /// </summary>
-    public void SetModel(int modelIndex)
+    public void SetModel(int modelIndex, List<PackedScene> loadedModels)
     {
         currentModelIndex = modelIndex;
         if (modelIndex < 0) return;
@@ -49,8 +37,68 @@ public partial class NetworkedNode2D : Node2D
         }
 
         // Instantiate and add the new model
-        Node2D modelInstance = Globals.worldManager_server.networkManager_server.LoadedModels[modelIndex].Instantiate<Node2D>();
+        Node2D modelInstance = loadedModels[modelIndex].Instantiate<Node2D>();
         AddChild(modelInstance);
+    }
+
+    /// <summary>
+    /// Sets the sound to play on this networked node.
+    /// On the server side, just records the sound for network transmission.
+    /// On the client side, actually plays the sound.
+    /// </summary>
+    public void SetSound(short soundIndex, List<AudioStream> loadedSounds, float soundRadius = 50.0f, bool soundIs2D = false, bool serverSide = true)
+    {
+        _soundToPlay = soundIndex;
+        SoundIs2D = soundIs2D;
+
+        if (soundIndex != -1)
+        {
+            AudioStream streamToPlay = loadedSounds[soundIndex];
+            timeToResetSound = (Time.GetTicksMsec() / 1000.0f) + (float)streamToPlay.GetLength();
+
+            if (!serverSide)
+            {
+                // Client side - actually play the sound
+                if (soundIs2D)
+                {
+                    AudioStreamPlayer player = new AudioStreamPlayer();
+                    AddChild(player);
+                    player.Stream = streamToPlay;
+                    player.Finished += () => player.QueueFree();
+                    player.Play();
+                }
+                else
+                {
+                    AudioStreamPlayer3D player = new AudioStreamPlayer3D();
+                    AddChild(player);
+                    player.Stream = streamToPlay;
+                    player.Finished += () => player.QueueFree();
+                    player.MaxDistance = soundRadius;
+                    player.UnitSize = soundRadius * 0.15f;
+                    player.Play();
+                }
+            }
+        }
+        else
+        {
+            // Stop sound - on client side, remove any audio players
+            if (!serverSide)
+            {
+                foreach (Node child in GetChildren())
+                {
+                    if (child is AudioStreamPlayer audioPlayer)
+                    {
+                        audioPlayer.Stop();
+                        audioPlayer.QueueFree();
+                    }
+                    else if (child is AudioStreamPlayer3D audioPlayer3D)
+                    {
+                        audioPlayer3D.Stop();
+                        audioPlayer3D.QueueFree();
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -64,11 +112,29 @@ public partial class NetworkedNode2D : Node2D
 
     /// <summary>
     /// Sets the particle effect for this networked node by index into the loaded particle effects list.
+    /// Removes any existing particle effect children and instantiates the new one.
     /// </summary>
-    public void SetParticleEffect(int particleEffectIndex)
+    public void SetParticleEffect(int particleEffectIndex, List<PackedScene> loadedParticleEffects, bool serverSide = true)
     {
         currentParticleEffectIndex = particleEffectIndex;
-        // TODO: Apply particle effect when particle system is implemented
+        if (particleEffectIndex < 0) return;
+
+        // Remove any existing particle effect children
+        foreach (Node child in GetChildren())
+        {
+            if (child is GpuParticles2D particles2D)
+            {
+                particles2D.QueueFree();
+            }
+            else if (child is CpuParticles2D cpuParticles2D)
+            {
+                cpuParticles2D.QueueFree();
+            }
+        }
+
+        // Instantiate and add the new particle effect
+        Node2D particleInstance = loadedParticleEffects[particleEffectIndex].Instantiate<Node2D>();
+        AddChild(particleInstance);
     }
 
     public override void _Process(double delta)

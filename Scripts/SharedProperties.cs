@@ -283,51 +283,25 @@ public unsafe class SharedProperties
 				offset++;
 			}
 	
-            // right. If we get a -1, it means the either the sound is ended, in which case we do nothing, or it means Stop whatever sound IS playing, so lets do that.
-            if (playingSound == -1)
-            {
-                // Stop and remove any audio players attached to this node
-                foreach (Node child in targetNode.GetChildren())                                                                                                                                  
-                {                                                                                                                                                                                 
-                    if (child is AudioStreamPlayer audioPlayer)
-                    {
-                        audioPlayer.Stop();
-                        audioPlayer.QueueFree();
-                    }
-                    else if (child is AudioStreamPlayer3D audioPlayer3D)
-                    {
-                        audioPlayer3D.Stop();
-                        audioPlayer3D.QueueFree();
-                    }
-                }
-            }
-            else
-            {
-                // okay. If the sound index in negative - and NOT -1, then the sound is 2D, not 3D.
-                if (playingSound < -1)
-                {
-                    AudioStreamPlayer player = new AudioStreamPlayer();                                                                                                                           
-                    targetNode.AddChild(player);
-					// need to subtract -2 to the playing sound, to put it back to 0, since 2D sounds are increased by 2 to get past the -1 value
-                    player.Stream = Globals.worldManager_client.networkManager_client.LoadedSounds[(-playingSound) - 2];
-                    player.Finished += () => player.QueueFree();
-                    player.Play();
-                }
-                else
-                {
-                    float soundRadius = (float)buffer[offset];
-                    offset++;
+            // Determine sound parameters and route through callback
+            float soundRadius = 0;
+            bool soundIs2D = false;
+            short actualSoundIndex = playingSound;
 
-                    AudioStreamPlayer3D player = new AudioStreamPlayer3D();
-                    targetNode.AddChild(player);
-                    player.Stream = Globals.worldManager_client.networkManager_client.LoadedSounds[playingSound];
-                    player.Finished += () => player.QueueFree();
-                    player.MaxDistance = soundRadius;
-                    player.UnitSize = soundRadius * 0.15f;  // full volume within 15% of radius
-                    player.Play();
-                    
-                }
+            if (playingSound < -1)
+            {
+                // 2D sound - decode the index
+                soundIs2D = true;
+                actualSoundIndex = (short)((-playingSound) - 2);
             }
+            else if (playingSound > -1)
+            {
+                // 3D sound - read radius
+                soundRadius = (float)buffer[offset];
+                offset++;
+            }
+
+            Globals.worldManager_client.networkManager_client.ApplySoundToNode(targetNode, actualSoundIndex, soundRadius, soundIs2D);
 		}
 
 		// Model
@@ -384,7 +358,7 @@ public unsafe class SharedProperties
 				networkedNode2DAnim.currentAnimationIndex = currentAnimation;
 			}
 
-			// TODO: Apply animation to targetNode (will be synced to depth viewport via SyncNodeProperties)
+			Globals.worldManager_client.networkManager_client.ApplyAnimationToNode(targetNode, currentAnimation);
 		}
 
 		// Particle Effect
@@ -412,7 +386,7 @@ public unsafe class SharedProperties
 				networkedNode2DParticle.currentParticleEffectIndex = particleEffect;
 			}
 
-			// TODO: Apply particle effect to targetNode (will be synced to depth viewport via SyncNodeProperties)
+			Globals.worldManager_client.networkManager_client.ApplyParticleEffectToNode(targetNode, particleEffect);
 		}
 
 		// Sync all node properties (position, rotation, scale) to other viewports
