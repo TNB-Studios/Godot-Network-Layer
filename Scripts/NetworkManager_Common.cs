@@ -50,36 +50,33 @@ public class NetworkManager_Common
 		_rootSceneNode = rootSceneNode;
 	}
 
-
-	/// <summary>
-	/// Clears all name lists and loaded resource lists.
-	/// Call this when setting up a new game.
-	/// </summary>
-	public void ClearPrecachedResources()
-	{
-		SoundNames.Clear();
-		ModelNames.Clear();
-		AnimationNames.Clear();
-		ParticleEffectNames.Clear();
-		LoadedModels.Clear();
-		LoadedSounds.Clear();
-		LoadedParticleEffects.Clear();
-	}
-
 	/// <summary>
 	/// Loads all models from ModelNames into LoadedModels.
 	/// Call this after ModelNames has been populated.
 	/// </summary>
 	public void LoadModelsFromNames()
 	{
-		if (ModelNames.Count != LoadedModels.Count)
+		LoadedModels = new List<PackedScene>(ModelNames.Count);
+
+		int index = 0;
+		foreach (string modelName in ModelNames)
 		{
-			foreach (string modelName in ModelNames)
+			try
 			{
-				PackedScene scene = GD.Load<PackedScene>("res://" + modelName);
-				LoadedModels.Add(scene);
+				if (modelName != null && modelName != "")
+				{
+					PackedScene scene = GD.Load<PackedScene>("res://" + modelName);
+					LoadedModels.Add(scene);
+				}
+				else
+				{
+					GD.Print("Cannot find model " + modelName);
+					LoadedModels.Add(null);
+				}
 			}
-		}
+			catch { }
+			index++;
+		}		
 	}
 
 	/// <summary>
@@ -88,14 +85,27 @@ public class NetworkManager_Common
 	/// </summary>
 	public void LoadSoundsFromNames()
 	{
-		if (SoundNames.Count != LoadedSounds.Count)
-		{
-			foreach (string soundName in SoundNames)
-			{
-				AudioStream sound = GD.Load<AudioStream>("res://" + soundName);
-				LoadedSounds.Add(sound);
-			}
-		}
+        LoadedSounds = new List<AudioStream>(SoundNames.Count);
+
+        int index = 0;
+        foreach (string soundName in SoundNames)
+        {
+            try
+            {
+				if (soundName != null && soundName != "")
+				{
+					AudioStream sound = GD.Load<AudioStream>("res://" + soundName);
+					LoadedSounds.Add(sound);
+				}
+                else
+                {
+                    GD.Print("Cannot sound model " + soundName);
+                    LoadedSounds.Add(null);
+                }
+            }
+            catch { }
+            index++;
+        }
 	}
 
 	/// <summary>
@@ -104,15 +114,29 @@ public class NetworkManager_Common
 	/// </summary>
 	public void LoadParticleEffectsFromNames()
 	{
-		if (ParticleEffectNames.Count != LoadedParticleEffects.Count)
-		{
-			foreach (string particleEffectName in ParticleEffectNames)
-			{
-				PackedScene scene = GD.Load<PackedScene>("res://" + particleEffectName);
-				LoadedParticleEffects.Add(scene);
-			}
-		}
-	}
+        LoadedParticleEffects = new List<PackedScene>(ParticleEffectNames.Count);
+
+        int index = 0;
+        foreach (string particleEffect in ParticleEffectNames)
+        {
+            try
+            {
+				if (particleEffect != null && particleEffect != "")
+				{
+					PackedScene scene = GD.Load<PackedScene>("res://" + particleEffect);
+					LoadedParticleEffects.Add(scene);
+                }
+                else
+                {
+                    GD.Print("Cannot sound particle Effect " + particleEffect);
+                    LoadedParticleEffects.Add(null);
+                }
+
+            }
+            catch { }
+            index++;
+        }
+    }
 
 	/// <summary>
 	/// Writes a 3-byte integer to a buffer (little-endian).

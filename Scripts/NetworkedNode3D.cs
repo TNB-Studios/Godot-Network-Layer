@@ -1,5 +1,6 @@
 using Godot;
 using System.Collections.Generic;
+using System.Reflection.Metadata.Ecma335;
 
 /// <summary>
 /// A Node3D with built-in velocity that automatically updates position each frame.
@@ -24,7 +25,14 @@ public partial class NetworkedNode3D : Node3D
     public void SetModel(int modelIndex, List<PackedScene> loadedModels)
     {
         currentModelIndex = modelIndex;
-        if (modelIndex < 0) return;
+        if (modelIndex < 0)
+        {
+            return;
+        }
+        if (loadedModels.Count < modelIndex || loadedModels[modelIndex] == null)
+        {
+            GD.Print("Trying to use a not loaded model, index " + modelIndex);
+        }
 
         // Remove any existing model children (nodes with a SceneFilePath)
         foreach (Node child in GetChildren())
@@ -53,6 +61,11 @@ public partial class NetworkedNode3D : Node3D
 
         if (soundIndex != -1)
         {
+            if (loadedSounds.Count < soundIndex || loadedSounds[soundIndex] == null)
+            {
+                GD.Print("Trying to use a not loaded sound, index " + soundIndex);
+            }
+
             AudioStream streamToPlay = loadedSounds[soundIndex];
             timeToResetSound = (Time.GetTicksMsec() / 1000.0f) + (float)streamToPlay.GetLength();
 
@@ -117,7 +130,14 @@ public partial class NetworkedNode3D : Node3D
     public void SetParticleEffect(int particleEffectIndex, List<PackedScene> loadedParticleEffects, bool serverSide = true)
     {
         currentParticleEffectIndex = particleEffectIndex;
-        if (particleEffectIndex < 0) return;
+        if (particleEffectIndex < 0)
+        {
+            return;
+        }
+        if (loadedParticleEffects.Count < particleEffectIndex || loadedParticleEffects[particleEffectIndex] == null)
+        {
+            GD.Print("Trying to use a not loaded particle effect, index " + particleEffectIndex);
+        }
 
         // Remove any existing particle effect children
         foreach (Node child in GetChildren())

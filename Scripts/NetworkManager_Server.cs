@@ -195,7 +195,7 @@ public class NetworkManager_Server : NetworkManager_Common
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Animations at this point!!");
 		while (AnimationNames.Count < index + 1)
 		{
-			AnimationNames.Add(null);
+			AnimationNames.Add("");
 		}
 		AnimationNames[index] = animationName;
 	}
@@ -205,7 +205,7 @@ public class NetworkManager_Server : NetworkManager_Common
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Models at this point!!");
 		while (ModelNames.Count < index + 1)
 		{
-			ModelNames.Add(null);
+			ModelNames.Add("");
 		}
 		ModelNames[index] = modelName;
 	}
@@ -215,7 +215,7 @@ public class NetworkManager_Server : NetworkManager_Common
 		Debug.Assert(!gameStarted, "Game Started. Can't be adding Sounds at this point!!");
 		while (SoundNames.Count < index + 1)
 		{
-			SoundNames.Add(null);
+			SoundNames.Add("");
 		}
 		SoundNames[index] = soundName;
 	}
