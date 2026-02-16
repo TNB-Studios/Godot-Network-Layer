@@ -159,6 +159,7 @@ public partial class NetworkedNode3D : Node3D
 
     public float SoundRadius = 50.0f;
     public bool SoundIs2D = false;
+
     public override void _Process(double delta)
     {
         if (Velocity != Vector3.Zero)
