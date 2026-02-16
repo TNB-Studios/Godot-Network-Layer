@@ -189,13 +189,9 @@ public class NetworkManager_Client : NetworkManager_Common
 		{
 			updateNodeModelCallback(targetNode, modelIndex);
 		}
-		else if (targetNode is NetworkedNode3D node3D)
+		else if (targetNode is INetworkedNode networkedNode)
 		{
-			node3D.SetModel(modelIndex, LoadedModels);
-		}
-		else if (targetNode is NetworkedNode2D node2D)
-		{
-			node2D.SetModel(modelIndex, LoadedModels);
+			networkedNode.SetModel(modelIndex, LoadedModels);
 		}
 	}
 
@@ -220,13 +216,9 @@ public class NetworkManager_Client : NetworkManager_Common
 		{
 			applySoundCallback(targetNode, soundIndex, soundRadius, is2D);
 		}
-		else if (targetNode is NetworkedNode3D node3D)
+		else if (targetNode is INetworkedNode networkedNode)
 		{
-			node3D.SetSound(soundIndex, LoadedSounds, soundRadius, is2D, serverSide: false);
-		}
-		else if (targetNode is NetworkedNode2D node2D)
-		{
-			node2D.SetSound(soundIndex, LoadedSounds, soundRadius, is2D, serverSide: false);
+			networkedNode.SetSound(soundIndex, LoadedSounds, soundRadius, is2D, serverSide: false);
 		}
 	}
 
@@ -252,13 +244,9 @@ public class NetworkManager_Client : NetworkManager_Common
 		{
 			applyParticleEffectCallback(targetNode, particleEffectIndex);
 		}
-		else if (targetNode is NetworkedNode3D node3D)
+		else if (targetNode is INetworkedNode networkedNode)
 		{
-			node3D.SetParticleEffect(particleEffectIndex, LoadedParticleEffects, serverSide: false);
-		}
-		else if (targetNode is NetworkedNode2D node2D)
-		{
-			node2D.SetParticleEffect(particleEffectIndex, LoadedParticleEffects, serverSide: false);
+			networkedNode.SetParticleEffect(particleEffectIndex, LoadedParticleEffects, serverSide: false);
 		}
 	}
 

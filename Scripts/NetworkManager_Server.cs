@@ -553,35 +553,18 @@ public class NetworkManager_Server : NetworkManager_Common
 				{
 					Aabb aabb = meshInstance.GetAabb();
 					Vector3 halfExtents = aabb.Size * 0.5f;
-					// Radius is the length from center to corner (bounding sphere)
 					newSharedProperty.ViewRadius = halfExtents.Length();
 				}
 				else
 				{
-					newSharedProperty.ViewRadius = 1.0f; // Default fallback
+					newSharedProperty.ViewRadius = 1.0f;
 				}
 
+				// Velocity (3D-specific: Vector3 directly)
 				if (node3D is NetworkedNode3D networkedNode3D)
 				{
-					// If attached to another object, set the flag and skip transform data
-					if (networkedNode3D.attachedToObjectLookupIndex != -1)
-					{
-						newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kIsAttachedToInMask);
-						newSharedProperty.AttachedToObjectLookupIndex = networkedNode3D.attachedToObjectLookupIndex;
-					}
-
 					newSharedProperty.Velocity = networkedNode3D.Velocity;
-					newSharedProperty.PlayingSound = networkedNode3D.SoundToPlay;
-                    newSharedProperty.SoundRadius = networkedNode3D.SoundRadius;
-					if (networkedNode3D.SoundIs2D)
-					{
-						newSharedProperty.PlayingSound = (short)(-newSharedProperty.PlayingSound - 2);
-					}
-					if (networkedNode3D.CompresedVelocityAndOrientation)
-					{
-						newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask);
-					}
-                }
+				}
 				else
 				{
 					newSharedProperty.Velocity = Vector3.Zero;
@@ -596,22 +579,35 @@ public class NetworkManager_Server : NetworkManager_Common
 
 				newSharedProperty.ViewRadius = 1.0f; // Default for 2D
 
-				// Handle 2D velocity
+				// Velocity (2D-specific: Vector2 -> Vector3 conversion)
 				if (node2D is NetworkedNode2D networkedNode2D)
 				{
-					// If attached to another object, set the flag and skip transform data
-					if (networkedNode2D.attachedToObjectLookupIndex != -1)
-					{
-						newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kIsAttachedToInMask);
-						newSharedProperty.AttachedToObjectLookupIndex = networkedNode2D.attachedToObjectLookupIndex;
-					}
-
 					newSharedProperty.Velocity = new Vector3(networkedNode2D.Velocity.X, networkedNode2D.Velocity.Y, 0);
-                    newSharedProperty.PlayingSound = networkedNode2D.SoundToPlay;
-                }
+				}
 				else
 				{
 					newSharedProperty.Velocity = Vector3.Zero;
+				}
+			}
+
+			// Common INetworkedNode properties (attachedTo, sound, compressed flag)
+			if (sharedObject is INetworkedNode networkedNode)
+			{
+				if (networkedNode.attachedToObjectLookupIndex != -1)
+				{
+					newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kIsAttachedToInMask);
+					newSharedProperty.AttachedToObjectLookupIndex = networkedNode.attachedToObjectLookupIndex;
+				}
+
+				newSharedProperty.PlayingSound = networkedNode.SoundToPlay;
+				newSharedProperty.SoundRadius = networkedNode.SoundRadius;
+				if (networkedNode.SoundIs2D)
+				{
+					newSharedProperty.PlayingSound = (short)(-newSharedProperty.PlayingSound - 2);
+				}
+				if (networkedNode.CompressedVelocityAndOrientation)
+				{
+					newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask);
 				}
 			}
 		}

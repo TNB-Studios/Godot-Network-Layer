@@ -218,10 +218,8 @@ public unsafe class SharedProperties
 		{
 			short attachedIndex = *(short*)(buffer + offset);
 			offset += sizeof(short);
-			if (targetNode is NetworkedNode3D attached3D)
-				attached3D.attachedToObjectLookupIndex = attachedIndex;
-			else if (targetNode is NetworkedNode2D attached2D)
-				attached2D.attachedToObjectLookupIndex = attachedIndex;
+			if (targetNode is INetworkedNode attachedNode)
+				attachedNode.attachedToObjectLookupIndex = attachedIndex;
 			// Skip to sound/model/animation/particle — no position/orientation/velocity/scale
 			goto AfterTransformData;
 		}
@@ -330,13 +328,9 @@ public unsafe class SharedProperties
 			}
 
 			// Store the model index on the NetworkedNode
-			if (targetNode is NetworkedNode3D networkedNode3DModel)
+			if (targetNode is INetworkedNode networkedNodeModel)
 			{
-				networkedNode3DModel.currentModelIndex = currentModel;
-			}
-			else if (targetNode is NetworkedNode2D networkedNode2DModel)
-			{
-				networkedNode2DModel.currentModelIndex = currentModel;
+				networkedNodeModel.currentModelIndex = currentModel;
 			}
 
 			// Apply model via callback (handles multi-pass rendering)
@@ -359,13 +353,9 @@ public unsafe class SharedProperties
 			}
 
 			// Store the animation index on the NetworkedNode
-			if (targetNode is NetworkedNode3D networkedNode3DAnim)
+			if (targetNode is INetworkedNode networkedNodeAnim)
 			{
-				networkedNode3DAnim.currentAnimationIndex = currentAnimation;
-			}
-			else if (targetNode is NetworkedNode2D networkedNode2DAnim)
-			{
-				networkedNode2DAnim.currentAnimationIndex = currentAnimation;
+				networkedNodeAnim.currentAnimationIndex = currentAnimation;
 			}
 
 			Globals.worldManager_client.networkManager_client.ApplyAnimationToNode(targetNode, currentAnimation);
@@ -387,13 +377,9 @@ public unsafe class SharedProperties
 			}
 
 			// Store the particle effect index on the NetworkedNode
-			if (targetNode is NetworkedNode3D networkedNode3DParticle)
+			if (targetNode is INetworkedNode networkedNodeParticle)
 			{
-				networkedNode3DParticle.currentParticleEffectIndex = particleEffect;
-			}
-			else if (targetNode is NetworkedNode2D networkedNode2DParticle)
-			{
-				networkedNode2DParticle.currentParticleEffectIndex = particleEffect;
+				networkedNodeParticle.currentParticleEffectIndex = particleEffect;
 			}
 
 			Globals.worldManager_client.networkManager_client.ApplyParticleEffectToNode(targetNode, particleEffect);
