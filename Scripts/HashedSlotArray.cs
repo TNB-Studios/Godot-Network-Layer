@@ -1,7 +1,7 @@
 public class HashedSlotArray
 {
-	private const int ARRAY_SIZE = 16384;
-	private const int INDEX_MASK = 0x3FFF; // For fast modulo via bitwise AND (14 bits, top 2 reserved for flags)
+	private const int ARRAY_SIZE = 4096;
+	private const int INDEX_MASK = 0x0FFF; // For fast modulo via bitwise AND (12 bits, top 4 reserved for flags)
 
 	private ulong[] slots = new ulong[ARRAY_SIZE];
 	private bool[] occupied = new bool[ARRAY_SIZE]; // Track which slots are in use
@@ -12,8 +12,8 @@ public class HashedSlotArray
 	/// </summary>
 	public short Insert(ulong value)
 	{
-		// Hash: XOR all 16-bit chunks together for better distribution
-		short startIndex = (short)((value ^ (value >> 16) ^ (value >> 32) ^ (value >> 48)) & INDEX_MASK);
+		// Hash: XOR all 12-bit chunks together for better distribution
+		short startIndex = (short)((value ^ (value >> 12) ^ (value >> 24) ^ (value >> 36) ^ (value >> 48)) & INDEX_MASK);
 		short currentIndex = startIndex;
 
 		do
@@ -71,8 +71,8 @@ public class HashedSlotArray
 	/// </summary>
 	public short Find(ulong value)
 	{
-		// Hash: XOR all 16-bit chunks together for better distribution
-		short startIndex = (short)((value ^ (value >> 16) ^ (value >> 32) ^ (value >> 48)) & INDEX_MASK);
+		// Hash: XOR all 12-bit chunks together for better distribution
+		short startIndex = (short)((value ^ (value >> 12) ^ (value >> 24) ^ (value >> 36) ^ (value >> 48)) & INDEX_MASK);
 		short currentIndex = startIndex;
 
 		do

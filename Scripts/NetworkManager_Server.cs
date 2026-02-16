@@ -563,6 +563,13 @@ public class NetworkManager_Server : NetworkManager_Common
 
 				if (node3D is NetworkedNode3D networkedNode3D)
 				{
+					// If attached to another object, set the flag and skip transform data
+					if (networkedNode3D.attachedToObjectLookupIndex != -1)
+					{
+						newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kIsAttachedToInMask);
+						newSharedProperty.AttachedToObjectLookupIndex = networkedNode3D.attachedToObjectLookupIndex;
+					}
+
 					newSharedProperty.Velocity = networkedNode3D.Velocity;
 					newSharedProperty.PlayingSound = networkedNode3D.SoundToPlay;
                     newSharedProperty.SoundRadius = networkedNode3D.SoundRadius;
@@ -592,6 +599,13 @@ public class NetworkManager_Server : NetworkManager_Common
 				// Handle 2D velocity
 				if (node2D is NetworkedNode2D networkedNode2D)
 				{
+					// If attached to another object, set the flag and skip transform data
+					if (networkedNode2D.attachedToObjectLookupIndex != -1)
+					{
+						newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kIsAttachedToInMask);
+						newSharedProperty.AttachedToObjectLookupIndex = networkedNode2D.attachedToObjectLookupIndex;
+					}
+
 					newSharedProperty.Velocity = new Vector3(networkedNode2D.Velocity.X, networkedNode2D.Velocity.Y, 0);
                     newSharedProperty.PlayingSound = networkedNode2D.SoundToPlay;
                 }

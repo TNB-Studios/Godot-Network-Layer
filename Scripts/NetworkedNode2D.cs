@@ -14,15 +14,17 @@ public partial class NetworkedNode2D : Node2D
 
     public bool SoundIs2D = false;
 
-    public int currentModelIndex = -1;
-    public int currentAnimationIndex = -1;
-    public int currentParticleEffectIndex = -1;
+    public short currentModelIndex = -1;
+    public short currentAnimationIndex = -1;
+    public short currentParticleEffectIndex = -1;
+
+    public short attachedToObjectLookupIndex = -1;
 
     /// <summary>
     /// Sets the model for this networked node by index into the loaded models list.
     /// Removes any existing model children and instantiates the new model.
     /// </summary>
-    public void SetModel(int modelIndex, List<PackedScene> loadedModels)
+    public void SetModel(short modelIndex, List<PackedScene> loadedModels)
     {
         currentModelIndex = modelIndex;
         if (modelIndex < 0) return;
@@ -104,7 +106,7 @@ public partial class NetworkedNode2D : Node2D
     /// <summary>
     /// Sets the animation for this networked node by index into the loaded animations list.
     /// </summary>
-    public void SetAnimation(int animationIndex)
+    public void SetAnimation(short animationIndex)
     {
         currentAnimationIndex = animationIndex;
         // TODO: Apply animation when animation system is implemented
@@ -114,7 +116,7 @@ public partial class NetworkedNode2D : Node2D
     /// Sets the particle effect for this networked node by index into the loaded particle effects list.
     /// Removes any existing particle effect children and instantiates the new one.
     /// </summary>
-    public void SetParticleEffect(int particleEffectIndex, List<PackedScene> loadedParticleEffects, bool serverSide = true)
+    public void SetParticleEffect(short particleEffectIndex, List<PackedScene> loadedParticleEffects, bool serverSide = true)
     {
         currentParticleEffectIndex = particleEffectIndex;
         if (particleEffectIndex < 0) return;
@@ -139,7 +141,19 @@ public partial class NetworkedNode2D : Node2D
 
     public override void _Process(double delta)
     {
-        if (Velocity != Vector2.Zero)
+        // If attached to another object, copy its transform instead of using velocity
+        if (attachedToObjectLookupIndex != -1)
+        {
+            ulong parentId = Globals.worldManager_client.networkManager_client.IDToNetworkIDLookup.GetAt(attachedToObjectLookupIndex);
+            Node2D parentNode = GodotObject.InstanceFromId(parentId) as Node2D;
+            if (parentNode != null)
+            {
+                GlobalPosition = parentNode.GlobalPosition;
+                Rotation = parentNode.Rotation;
+                Scale = parentNode.Scale;
+            }
+        }
+        else if (Velocity != Vector2.Zero)
         {
             Position += Velocity * (float)delta;
         }

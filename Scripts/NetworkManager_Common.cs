@@ -41,7 +41,7 @@ public class NetworkManager_Common
 	public List<AudioStream> LoadedSounds { get; set; } = new List<AudioStream>();
 	public List<PackedScene> LoadedParticleEffects { get; set; } = new List<PackedScene>();
 
-	protected HashedSlotArray IDToNetworkIDLookup;
+	public HashedSlotArray IDToNetworkIDLookup;
 
     protected static readonly string NETWORKED_GROUP_NAME = "networked";
 

@@ -9,13 +9,6 @@ public unsafe class SharedProperties
 		kHalf,
 		KCompressed
 	}
-
-	public enum ObjectTypeForFrameTransmission
-	{
-		kNotMoving,
-		kProjectile,
-		kSendAll
-	}
 	
 	// these settings determine how the data for specific vectors is stored in the buffer, so it can be modified as needed.
 	static readonly SetCompressionOnVectors PositionCompression = SetCompressionOnVectors.kHalf;
@@ -23,7 +16,6 @@ public unsafe class SharedProperties
 	static readonly SetCompressionOnVectors ScaleCompression = SetCompressionOnVectors.kHalf;
 	static readonly SetCompressionOnVectors VelocityCompression = SetCompressionOnVectors.kHalf;
 
-	public ObjectTypeForFrameTransmission typeForFrameTransmission = ObjectTypeForFrameTransmission.kSendAll;  // only used on server side. This details if we should bother to send stuff like position per frame if we've already set velocity
 	public float ViewRadius { get; set;} = 0; // only used on transmission side.
 	public Vector3 Position { get; set; } = Vector3.Zero;
 	public Vector3 Orientation { get; set; } = Vector3.Zero;
@@ -39,6 +31,7 @@ public unsafe class SharedProperties
 	public float SoundRadius {get; set;} = 10; // used server side
 
 	public short ParticleEffect {get; set; } = -1;
+	public short AttachedToObjectLookupIndex { get; set; } = -1;
 
 	private int currentBufferOffset = 0;
 	private byte* currentBuffer = null;
@@ -53,15 +46,19 @@ public unsafe class SharedProperties
 		kModel = 0x20,
 		kAnimation = 0x40,
 		kParticleEffect = 0x80,
-		kIs2D = 0x100,          // Stored in top 2 bits of ObjectIndex
-		kIs2DInMask = (kIs2D << 6),
-		kCompressedOrientationAndVelocity = 0x200,   // Stored in top 2 bits of ObjectIndex - forces compressed format for Orientation and Velocity
-		kCompressedOrientationAndVelocityInMask = (kCompressedOrientationAndVelocity << 6)
+		kIs2D = 0x100,          // Stored in top 4 bits of ObjectIndex
+		kIs2DInMask = (kIs2D << 4),
+		kCompressedOrientationAndVelocity = 0x200,   // Stored in top 4 bits of ObjectIndex - forces compressed format for Orientation and Velocity
+		kCompressedOrientationAndVelocityInMask = (kCompressedOrientationAndVelocity << 4),
+		kIsAttachedTo = 0x400,          // Stored in top 4 bits of ObjectIndex
+		kIsAttachedToInMask = (kIsAttachedTo << 4),
+		kUsesBlob = 0x800,          // Stored in top 4 bits of ObjectIndex
+		kUsesBlobInMask = (kUsesBlob << 4),
 	}
 
 	// Constants for ObjectIndex bit manipulation
-	// Top 2 bits of ObjectIndex are used for kIs2D and kCompressedOrientationAndVelocity flags
-	private const short ObjectIndexMask = 0x3FFF;        // 14 bits for actual index (max 16384 objects)
+	// Top 4 bits of ObjectIndex are used for flags, leaving 12 bits for the actual index
+	private const short ObjectIndexMask = 0x0FFF;        // 12 bits for actual index (max 4096 objects)
 
 	public SharedProperties()
 	{
@@ -216,6 +213,19 @@ public unsafe class SharedProperties
 		Node3D node3D = targetNode as Node3D;
 		Node2D node2D = targetNode as Node2D;
 
+		// If attached to another object, read the 2-byte lookup index and skip transform data
+		if ((mask & (short)SharedObjectValueSetMask.kIsAttachedTo) != 0)
+		{
+			short attachedIndex = *(short*)(buffer + offset);
+			offset += sizeof(short);
+			if (targetNode is NetworkedNode3D attached3D)
+				attached3D.attachedToObjectLookupIndex = attachedIndex;
+			else if (targetNode is NetworkedNode2D attached2D)
+				attached2D.attachedToObjectLookupIndex = attachedIndex;
+			// Skip to sound/model/animation/particle — no position/orientation/velocity/scale
+			goto AfterTransformData;
+		}
+
         // Velocity - use compressed format if flag is set AND not 2D (compressed uses 3D direction table)
         if ((mask & (short)SharedObjectValueSetMask.kVelocity) != 0)
         {
@@ -266,7 +276,7 @@ public unsafe class SharedProperties
 				node2D.Scale = new Vector2(scale.X, scale.Y);
 		}
 
-
+		AfterTransformData:
 
 		// Sound
 		if ((mask & (short)SharedObjectValueSetMask.kSound) != 0)
@@ -415,12 +425,13 @@ public unsafe class SharedProperties
 	/// </summary>
 	public static void DecodeObjectIndexAndMask(short encodedIndex, byte baseMask, out short objectIndex, out short fullMask)
 	{
-		// Extract the actual object index (lower 14 bits)
+		// Extract the actual object index (lower 12 bits)
 		objectIndex = (short)(encodedIndex & ObjectIndexMask);
 
-		// Extract extended flags from top 2 bits (14-15) and shift to mask positions (8-9)
-		// kIs2DInMask (0x4000) -> kIs2D (0x100), kCompressedOrientationAndVelocityInMask (0x8000) -> kCompressedOrientationAndVelocity (0x200)
-		short extendedFlags = (short)((encodedIndex >> 6) & 0x300);
+		// Extract extended flags from top 4 bits (12-15) and shift to mask positions (8-11)
+		// kIs2DInMask (bit 12) -> kIs2D (0x100), kCompressedInMask (bit 13) -> 0x200,
+		// kIsAttachedToInMask (bit 14) -> 0x400, kUsesBlobInMask (bit 15) -> 0x800
+		short extendedFlags = (short)((encodedIndex >> 4) & 0xF00);
 
 		// Combine base mask with extended flags
 		fullMask = (short)((ushort)baseMask | (ushort)extendedFlags);
@@ -434,6 +445,17 @@ public unsafe class SharedProperties
 		// Extract flags from ObjectIndex (stored in top bits)
 		bool is2D = (ObjectIndex & (short)SharedObjectValueSetMask.kIs2DInMask) != 0;
 		bool compressedOrientationAndVelocity = (ObjectIndex & unchecked((short)SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask)) != 0;
+		bool isAttachedTo = (ObjectIndex & unchecked((short)SharedObjectValueSetMask.kIsAttachedToInMask)) != 0;
+
+		// If attached to another object, just write the 2-byte lookup index and skip all transform data
+		if (isAttachedTo)
+		{
+			SetAddedObjectToBuffer(0); // ensure ObjectIndex and mask header are written
+			*(short*)(currentBuffer + currentBufferOffset) = AttachedToObjectLookupIndex;
+			currentBufferOffset += sizeof(short);
+			// Skip straight to sound/model/animation/particle — no position/orientation/velocity/scale
+			goto AfterTransformData;
+		}
 
 		// start looking at each value to see what we might put in the buffer for this object.
 		// Note: Position and Scale never use compressed format, only Full or Half
@@ -559,6 +581,8 @@ public unsafe class SharedProperties
 				}
 			}
 		}
+
+		AfterTransformData:
 
 		if (oldSharedProperties == null || PlayingSound != oldSharedProperties.PlayingSound)
 		{
