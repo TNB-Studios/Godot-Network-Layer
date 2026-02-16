@@ -33,6 +33,8 @@ public unsafe class SharedProperties
 	public short ParticleEffect {get; set; } = -1;
 	public short AttachedToObjectLookupIndex { get; set; } = -1;
 
+	public byte[] NetworkedBlob { get; set; } = null;
+
 	private int currentBufferOffset = 0;
 	private byte* currentBuffer = null;
 
@@ -225,6 +227,8 @@ public unsafe class SharedProperties
 		}
 
         // Velocity - use compressed format if flag is set AND not 2D (compressed uses 3D direction table)
+        // Receiving velocity means the object is not attached (attached objects skip transform data),
+        // so clear attachedToObjectLookupIndex in case the object was previously attached.
         if ((mask & (short)SharedObjectValueSetMask.kVelocity) != 0)
         {
             SetCompressionOnVectors velocityMode = (compressedOrientationAndVelocity && !is2D)
@@ -234,10 +238,12 @@ public unsafe class SharedProperties
             if (targetNode is NetworkedNode3D networkedNode3D)
             {
                 networkedNode3D.Velocity = velocity;
+                networkedNode3D.attachedToObjectLookupIndex = -1;
             }
             else if (targetNode is NetworkedNode2D networkedNode2D)
             {
                 networkedNode2D.Velocity = new Vector2(velocity.X, velocity.Y);
+                networkedNode2D.attachedToObjectLookupIndex = -1;
             }
         }
 
@@ -385,6 +391,24 @@ public unsafe class SharedProperties
 			Globals.worldManager_client.networkManager_client.ApplyParticleEffectToNode(targetNode, particleEffect);
 		}
 
+		// Blob data
+		if ((mask & (short)SharedObjectValueSetMask.kUsesBlob) != 0)
+		{
+			byte blobLength = buffer[offset];
+			offset++;
+			byte[] blob = new byte[blobLength];
+			for (int i = 0; i < blobLength; i++)
+			{
+				blob[i] = buffer[offset + i];
+			}
+			offset += blobLength;
+
+			if (targetNode is INetworkedNode networkedNodeBlob)
+			{
+				networkedNodeBlob.SetNetworkedBlob(blob);
+			}
+		}
+
 		// Sync all node properties (position, rotation, scale) to other viewports
 		Globals.worldManager_client.networkManager_client.SyncNodePropertiesToViewports(targetNode);
 
@@ -428,18 +452,37 @@ public unsafe class SharedProperties
 		currentBuffer = buffer;
 		currentBufferOffset = 0;
 
+		// Check if blob should be sent (must set flag on ObjectIndex BEFORE it gets written to buffer)
+		bool sendBlob = false;
+		if (NetworkedBlob != null && NetworkedBlob.Length > 0)
+		{
+			if (oldSharedProperties == null || !BlobEquals(NetworkedBlob, oldSharedProperties.NetworkedBlob))
+			{
+				sendBlob = true;
+				ObjectIndex |= unchecked((short)SharedObjectValueSetMask.kUsesBlobInMask);
+			}
+		}
+
 		// Extract flags from ObjectIndex (stored in top bits)
 		bool is2D = (ObjectIndex & (short)SharedObjectValueSetMask.kIs2DInMask) != 0;
 		bool compressedOrientationAndVelocity = (ObjectIndex & unchecked((short)SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask)) != 0;
 		bool isAttachedTo = (ObjectIndex & unchecked((short)SharedObjectValueSetMask.kIsAttachedToInMask)) != 0;
 
-		// If attached to another object, just write the 2-byte lookup index and skip all transform data
+		// If attached to another object, write the 2-byte lookup index only if changed, and skip all transform data
 		if (isAttachedTo)
 		{
-			SetAddedObjectToBuffer(0); // ensure ObjectIndex and mask header are written
-			*(short*)(currentBuffer + currentBufferOffset) = AttachedToObjectLookupIndex;
-			currentBufferOffset += sizeof(short);
-			// Skip straight to sound/model/animation/particle — no position/orientation/velocity/scale
+			if (oldSharedProperties == null || AttachedToObjectLookupIndex != oldSharedProperties.AttachedToObjectLookupIndex)
+			{
+				SetAddedObjectToBuffer(0); // ensure ObjectIndex and mask header are written
+				*(short*)(currentBuffer + currentBufferOffset) = AttachedToObjectLookupIndex;
+				currentBufferOffset += sizeof(short);
+			}
+			else
+			{
+				// Attached index unchanged - clear the flag so client doesn't try to read it
+				ObjectIndex &= unchecked((short)~SharedObjectValueSetMask.kIsAttachedToInMask);
+			}
+			// Skip transform data regardless — position comes from parent
 			goto AfterTransformData;
 		}
 
@@ -676,12 +719,36 @@ public unsafe class SharedProperties
 				}
 			}
 		}
+		// Blob data (signaled via kUsesBlob flag in ObjectIndex top bits)
+		if (sendBlob)
+		{
+			SetAddedObjectToBuffer(0); // ensure header is written
+			currentBuffer[currentBufferOffset] = (byte)NetworkedBlob.Length;
+			currentBufferOffset++;
+			for (int i = 0; i < NetworkedBlob.Length; i++)
+			{
+				currentBuffer[currentBufferOffset + i] = NetworkedBlob[i];
+			}
+			currentBufferOffset += NetworkedBlob.Length;
+		}
 		return currentBufferOffset;
 	}
 
 	public static bool CompareVector(Vector3 vector1, Vector3 vector2)
 	{
 		return vector1.X != vector2.X || vector1.Y != vector2.Y || vector1.Z != vector2.Z;
+	}
+
+	private static bool BlobEquals(byte[] a, byte[] b)
+	{
+		if (a == null && b == null) return true;
+		if (a == null || b == null) return false;
+		if (a.Length != b.Length) return false;
+		for (int i = 0; i < a.Length; i++)
+		{
+			if (a[i] != b[i]) return false;
+		}
+		return true;
 	}
 
 	// Quake III normal vector compression lookup table (162 pre-computed normalized vectors)

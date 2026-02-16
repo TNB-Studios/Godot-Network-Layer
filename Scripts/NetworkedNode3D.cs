@@ -17,7 +17,25 @@ public partial class NetworkedNode3D : Node3D, INetworkedNode
     public short currentAnimationIndex { get; set; } = -1;
     public short currentParticleEffectIndex { get; set; } = -1;
     public short attachedToObjectLookupIndex { get; set; } = -1;
+    public byte[] networkedBlob { get; set; } = null;
     public bool CompressedVelocityAndOrientation { get; set; } = false;
+
+    public bool SetNetworkedBlob(byte[] blob)
+    {
+        if (blob == null) { networkedBlob = null; return true; }
+        if (blob.Length > 255) return false;
+        networkedBlob = new byte[blob.Length];
+        System.Array.Copy(blob, networkedBlob, blob.Length);
+        return true;
+    }
+
+    public byte[] GetNetworkedBlob() => networkedBlob;
+
+    public void AttachToObject(Node targetObject)
+    {
+        if (targetObject == null) { attachedToObjectLookupIndex = -1; return; }
+        attachedToObjectLookupIndex = Globals.worldManager_server.networkManager_server.IDToNetworkIDLookup.Find(targetObject.GetInstanceId());
+    }
 
     public void SetModel(short modelIndex, List<PackedScene> loadedModels)
         => NetworkedNodeHelper.SetModel(this, this, modelIndex, loadedModels);

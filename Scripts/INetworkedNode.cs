@@ -11,6 +11,8 @@ public interface INetworkedNode
     short currentAnimationIndex { get; set; }
     short currentParticleEffectIndex { get; set; }
     short attachedToObjectLookupIndex { get; set; }
+
+    byte[] networkedBlob {get; set;}
     bool CompressedVelocityAndOrientation { get; set; }
 
     void SetSound(short soundIndex, List<AudioStream> loadedSounds,
@@ -18,4 +20,8 @@ public interface INetworkedNode
     void SetAnimation(short animationIndex);
     void SetModel(short modelIndex, List<PackedScene> loadedModels);
     void SetParticleEffect(short particleEffectIndex, List<PackedScene> loadedParticleEffects, bool serverSide = true);
+
+    bool SetNetworkedBlob(byte[] blob);
+    byte[] GetNetworkedBlob();
+    void AttachToObject(Node targetObject);
 }

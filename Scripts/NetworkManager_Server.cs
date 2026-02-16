@@ -609,6 +609,13 @@ public class NetworkManager_Server : NetworkManager_Common
 				{
 					newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask);
 				}
+
+				// Copy blob data (snapshot for delta comparison)
+				if (networkedNode.networkedBlob != null && networkedNode.networkedBlob.Length > 0)
+				{
+					newSharedProperty.NetworkedBlob = new byte[networkedNode.networkedBlob.Length];
+					System.Array.Copy(networkedNode.networkedBlob, newSharedProperty.NetworkedBlob, networkedNode.networkedBlob.Length);
+				}
 			}
 		}
 
