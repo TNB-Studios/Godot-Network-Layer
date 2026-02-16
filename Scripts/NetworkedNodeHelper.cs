@@ -136,6 +136,11 @@ public static class NetworkedNodeHelper
         ulong parentId = Globals.worldManager_client.networkManager_client.IDToNetworkIDLookup.GetAt(data.attachedToObjectLookupIndex);
         Node parentNode = GodotObject.InstanceFromId(parentId) as Node;
 
+        // If we're already a child of the attached object (default reparent behavior),
+        // we get transform for free from the scene tree — no need to copy.
+        if (parentNode == null || ownerNode.GetParent() == parentNode) return;
+
+        // Cross-viewport or non-reparented case: manually copy transform from parent
         if (parentNode is Node3D parent3D && ownerNode is Node3D owner3D)
         {
             owner3D.GlobalPosition = parent3D.GlobalPosition;

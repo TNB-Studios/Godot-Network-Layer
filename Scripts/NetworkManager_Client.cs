@@ -33,6 +33,10 @@ public class NetworkManager_Client : NetworkManager_Common
 	public delegate void ApplyParticleEffect(Node node, short particleEffectIndex);
 	private ApplyParticleEffect applyParticleEffectCallback = null;
 
+	// Callback delegate for attaching/detaching a node to another networked object
+	public delegate void ApplyAttach(Node node, short attachedIndex);
+	private ApplyAttach applyAttachCallback = null;
+
 	// Callback delegate for syncing node properties after all updates (for multi-pass rendering)
 	public delegate void SyncNodeProperties(Node node);
 	private SyncNodeProperties syncNodePropertiesCallback = null;
@@ -174,6 +178,11 @@ public class NetworkManager_Client : NetworkManager_Common
 		applyParticleEffectCallback = callback;
 	}
 
+	public void RegisterApplyAttachCallback(ApplyAttach callback)
+	{
+		applyAttachCallback = callback;
+	}
+
 	public void RegisterInitialGamePacketFromServerCallback(GotStartGamePacketFromServer callback)
 	{
 		gotStartGamePacketFromServer = callback;
@@ -231,6 +240,42 @@ public class NetworkManager_Client : NetworkManager_Common
 		if (applyAnimationCallback != null)
 		{
 			applyAnimationCallback(targetNode, animationIndex);
+		}
+	}
+
+	/// <summary>
+	/// Called by SharedProperties when an object's attached-to state changes.
+	/// Routes through the callback if registered, otherwise reparents the node
+	/// under the attached object (or back to the root scene on detach).
+	/// </summary>
+	public void ApplyAttachToNode(Node targetNode, short attachedIndex)
+	{
+		if (targetNode is INetworkedNode networkedNode)
+		{
+			networkedNode.attachedToObjectLookupIndex = attachedIndex;
+		}
+
+		if (applyAttachCallback != null)
+		{
+			applyAttachCallback(targetNode, attachedIndex);
+		}
+		else if (attachedIndex >= 0)
+		{
+			// Default: reparent under the attached object
+			ulong parentId = IDToNetworkIDLookup.GetAt(attachedIndex);
+			Node parentNode = GodotObject.InstanceFromId(parentId) as Node;
+			if (parentNode != null && targetNode.GetParent() != parentNode)
+			{
+				targetNode.Reparent(parentNode);
+			}
+		}
+		else
+		{
+			// Detach: reparent back to root scene
+			if (targetNode.GetParent() != _rootSceneNode)
+			{
+				targetNode.Reparent(_rootSceneNode);
+			}
 		}
 	}
 

@@ -220,15 +220,14 @@ public unsafe class SharedProperties
 		{
 			short attachedIndex = *(short*)(buffer + offset);
 			offset += sizeof(short);
-			if (targetNode is INetworkedNode attachedNode)
-				attachedNode.attachedToObjectLookupIndex = attachedIndex;
+			Globals.worldManager_client.networkManager_client.ApplyAttachToNode(targetNode, attachedIndex);
 			// Skip to sound/model/animation/particle — no position/orientation/velocity/scale
 			goto AfterTransformData;
 		}
 
         // Velocity - use compressed format if flag is set AND not 2D (compressed uses 3D direction table)
         // Receiving velocity means the object is not attached (attached objects skip transform data),
-        // so clear attachedToObjectLookupIndex in case the object was previously attached.
+        // so detach in case the object was previously attached.
         if ((mask & (short)SharedObjectValueSetMask.kVelocity) != 0)
         {
             SetCompressionOnVectors velocityMode = (compressedOrientationAndVelocity && !is2D)
@@ -238,12 +237,16 @@ public unsafe class SharedProperties
             if (targetNode is NetworkedNode3D networkedNode3D)
             {
                 networkedNode3D.Velocity = velocity;
-                networkedNode3D.attachedToObjectLookupIndex = -1;
             }
             else if (targetNode is NetworkedNode2D networkedNode2D)
             {
                 networkedNode2D.Velocity = new Vector2(velocity.X, velocity.Y);
-                networkedNode2D.attachedToObjectLookupIndex = -1;
+            }
+
+            // If this node was attached, detach it (route through callback/default reparent)
+            if (targetNode is INetworkedNode nn && nn.attachedToObjectLookupIndex != -1)
+            {
+                Globals.worldManager_client.networkManager_client.ApplyAttachToNode(targetNode, -1);
             }
         }
 
