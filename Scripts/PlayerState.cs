@@ -243,12 +243,11 @@ public class NetworkingPlayerState
             currentOffset += sizeof(float);
 
             // Write player orientation (3 floats = 12 bytes)
-            // Negate pitch (X), add Pi to yaw (Y), negate roll (Z) so the model faces correctly on other clients
-            *(float*)(bufferPtr + currentOffset) = -Orientation.X;
+            *(float*)(bufferPtr + currentOffset) = Orientation.X;
             currentOffset += sizeof(float);
-            *(float*)(bufferPtr + currentOffset) = Orientation.Y + Mathf.Pi;
+            *(float*)(bufferPtr + currentOffset) = Orientation.Y;
             currentOffset += sizeof(float);
-            *(float*)(bufferPtr + currentOffset) = -Orientation.Z;
+            *(float*)(bufferPtr + currentOffset) = Orientation.Z;
             currentOffset += sizeof(float);
 
             // Write player velocity (3 floats = 12 bytes)
