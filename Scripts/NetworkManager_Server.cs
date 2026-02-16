@@ -807,19 +807,19 @@ public class NetworkManager_Server : NetworkManager_Common
 			Node playerNode = GodotObject.InstanceFromId(player.InGameObjectInstanceID) as Node;
 			if (playerNode == null) continue;
 
-			if (player.Is2D && playerNode is Node2D node2D)
+			if (player.Is2D && playerNode is NetworkedNode2D node2D)
 			{
 				node2D.Position = new Vector2(player.Position.X, player.Position.Y);
 				node2D.Rotation = player.Orientation.Z;
 				node2D.Scale = new Vector2(player.Scale.X, player.Scale.Y);
-				// Note: Node2D doesn't have a Velocity property, that's handled by physics or manually
+				node2D.Velocity = new Vector2(player.Velocity.X, player.Velocity.Y);
 			}
-			else if (playerNode is Node3D node3D)
+			else if (playerNode is NetworkedNode3D node3D)
 			{
 				node3D.Position = player.Position;
 				node3D.Rotation = player.Orientation;
 				node3D.Scale = player.Scale;
-				// Note: Node3D doesn't have a Velocity property, that's handled by physics or manually
+				node3D.Velocity = player.Velocity;
 			}
 		}
 	}

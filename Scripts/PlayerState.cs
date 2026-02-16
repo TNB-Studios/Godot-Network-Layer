@@ -250,7 +250,13 @@ public class NetworkingPlayerState
             *(float*)(bufferPtr + currentOffset) = Orientation.Z;
             currentOffset += sizeof(float);
 
-            // TODO: Add additional input data (buttons, movement intent, etc.)
+            // Write player velocity (3 floats = 12 bytes)
+            *(float*)(bufferPtr + currentOffset) = Velocity.X;
+            currentOffset += sizeof(float);
+            *(float*)(bufferPtr + currentOffset) = Velocity.Y;
+            currentOffset += sizeof(float);
+            *(float*)(bufferPtr + currentOffset) = Velocity.Z;
+            currentOffset += sizeof(float);
         }
 
         // Increment the sequence number for the next input packet
@@ -296,8 +302,13 @@ public class NetworkingPlayerState
         );
         currentOffset += sizeof(float) * 3;
 
-
-        // TODO: Read additional input data (buttons, movement intent, etc.)
+        // Read player velocity (3 floats = 12 bytes)
+        Velocity = new Vector3(
+            *(float*)(bufferPtr + currentOffset),
+            *(float*)(bufferPtr + currentOffset + sizeof(float)),
+            *(float*)(bufferPtr + currentOffset + sizeof(float) * 2)
+        );
+        currentOffset += sizeof(float) * 3;
     }
 
     public bool DetermineSharedObjectCanBeSeenByPlayer(Vector3 objectPosition, float objectRadius, int soundIndex, float soundRadius)
