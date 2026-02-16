@@ -23,6 +23,19 @@ public class NetworkManager_Server : NetworkManager_Common
 
 	private bool gameStarted = false;
 
+	/// <summary>
+	/// Returns the number of remote clients currently connected via TCP.
+	/// </summary>
+	public int ConnectedRemoteClientCount => _networkLayer?.ConnectedClientCount ?? 0;
+
+	/// <summary>
+	/// Returns all connected remote clients from the network layer.
+	/// </summary>
+	public IEnumerable<ConnectedClient> GetConnectedClients()
+	{
+		return _networkLayer?.GetAllClients() ?? Array.Empty<ConnectedClient>();
+	}
+
 	// Set to true to force UDP compression on next tick
 	public bool ForceUdpCompression = false;
 
@@ -248,6 +261,14 @@ public class NetworkManager_Server : NetworkManager_Common
         Players = new List<NetworkingPlayerState>();
 		Frames = new List<FrameState>();
 
+		// Collect connected remote client IDs so we can assign them to player slots
+		List<int> remoteClientIds = new List<int>();
+		foreach (ConnectedClient client in GetConnectedClients())
+		{
+			remoteClientIds.Add(client.ClientId);
+		}
+		int remoteIndex = 0;
+
 		// Create a PlayerState for each player
 		for (int i = 0; i < playerCount; i++)
 		{
@@ -256,6 +277,13 @@ public class NetworkManager_Server : NetworkManager_Common
 			if (playerOnServer == i)
 			{
 				newPlayer.IsOnServer = true;
+			}
+			else if (remoteIndex < remoteClientIds.Count)
+			{
+				// Assign a connected remote client to this player slot
+				newPlayer.NetworkClientId = remoteClientIds[remoteIndex];
+				GD.Print($"NetworkManager_Server: Player {i} assigned to remote client {newPlayer.NetworkClientId}");
+				remoteIndex++;
 			}
 			Players.Add(newPlayer);
 
