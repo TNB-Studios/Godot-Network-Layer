@@ -254,7 +254,11 @@ public unsafe class SharedProperties
         if ((mask & (short)SharedObjectValueSetMask.kPosition) != 0)
 		{
 			Vector3 position = ReadVectorByCompression(buffer, ref offset, PositionCompression, is2D);
-			if (node3D != null)
+			if (targetNode is INetworkedNode nnPos)
+			{
+				NetworkedNodeHelper.ApplyNetworkPosition(targetNode, nnPos, position);
+			}
+			else if (node3D != null)
 				node3D.GlobalPosition = position;
 			else if (node2D != null)
 				node2D.GlobalPosition = new Vector2(position.X, position.Y);
@@ -267,17 +271,25 @@ public unsafe class SharedProperties
 				? SetCompressionOnVectors.KCompressed
 				: OrientationCompression;
 			Vector3 orientation = ReadVectorByCompression(buffer, ref offset, orientationMode, is2D);
-			if (node3D != null)
+			if (targetNode is INetworkedNode nnOri)
+			{
+				NetworkedNodeHelper.ApplyNetworkOrientation(targetNode, nnOri, orientation);
+			}
+			else if (node3D != null)
 				node3D.Rotation = orientation;
 			else if (node2D != null)
-				node2D.Rotation = orientation.Y;  // 2D uses Y as rotation angle
+				node2D.Rotation = orientation.Y;
 		}
 
 		// Scale
 		if ((mask & (short)SharedObjectValueSetMask.kScale) != 0)
 		{
 			Vector3 scale = ReadVectorByCompression(buffer, ref offset, ScaleCompression, is2D);
-			if (node3D != null)
+			if (targetNode is INetworkedNode nnScale)
+			{
+				NetworkedNodeHelper.ApplyNetworkScale(targetNode, nnScale, scale);
+			}
+			else if (node3D != null)
 				node3D.Scale = scale;
 			else if (node2D != null)
 				node2D.Scale = new Vector2(scale.X, scale.Y);

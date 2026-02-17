@@ -20,6 +20,11 @@ public partial class NetworkedNode3D : Node3D, INetworkedNode
     public byte[] networkedBlob { get; set; } = null;
     public bool CompressedVelocityAndOrientation { get; set; } = false;
 
+    public InterpState PositionInterp { get; } = new InterpState();
+    public InterpState OrientationInterp { get; } = new InterpState();
+    public InterpState ScaleInterp { get; } = new InterpState();
+    public Vector3 GetVelocity3() => Velocity;
+
     public bool SetNetworkedBlob(byte[] blob)
     {
         if (blob == null) { networkedBlob = null; return true; }
@@ -53,9 +58,9 @@ public partial class NetworkedNode3D : Node3D, INetworkedNode
     {
         NetworkedNodeHelper.ProcessAttachedTo(this, this);
 
-        if (attachedToObjectLookupIndex == -1 && Velocity != Vector3.Zero)
+        if (attachedToObjectLookupIndex == -1)
         {
-            Position += Velocity * (float)delta;
+            NetworkedNodeHelper.ProcessInterpolation(this, this, (float)delta);
         }
 
         NetworkedNodeHelper.ProcessSoundReset(this);

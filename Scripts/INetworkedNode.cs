@@ -1,6 +1,14 @@
 using Godot;
 using System.Collections.Generic;
 
+public class InterpState
+{
+    public Vector3 From;
+    public Vector3 To;
+    public float StartTime;
+    public float EndTime; // 0 = not interpolating
+}
+
 public interface INetworkedNode
 {
     short SoundToPlay { get; set; }
@@ -14,6 +22,12 @@ public interface INetworkedNode
 
     byte[] networkedBlob {get; set;}
     bool CompressedVelocityAndOrientation { get; set; }
+
+    // Interpolation state for smooth network corrections
+    InterpState PositionInterp { get; }
+    InterpState OrientationInterp { get; }
+    InterpState ScaleInterp { get; }
+    Vector3 GetVelocity3();
 
     void SetSound(short soundIndex, List<AudioStream> loadedSounds,
                   float soundRadius = 50.0f, bool soundIs2D = false, bool serverSide = true);
