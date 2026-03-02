@@ -251,9 +251,9 @@ public class NetworkManager_Server : NetworkManager_Common
         // note, not reseting the arrays of animations, models and sounds used, since this shouldn't change game to game.
         // but we do need to reload everything.
         // note, this has to happen AFTER we've set all the names and before any of them are actually used.
-        LoadModelsFromNames();
-        LoadSoundsFromNames();
-        LoadParticleEffectsFromNames();
+        LoadModelsFromNames(LogShips);
+        LoadSoundsFromNames(LogSounds);
+        // Particle effects are client-only (visual), server only needs the names list for network transmission
     }
 
 	public void NewGameSetup_Server(int playerCount, int playerOnServer = -1)
@@ -605,6 +605,7 @@ public class NetworkManager_Server : NetworkManager_Common
 				{
 					newSharedProperty.PlayingSound = (short)(-newSharedProperty.PlayingSound - 2);
 				}
+				newSharedProperty.ParticleEffect = networkedNode.currentParticleEffectIndex;
 				if (networkedNode.CompressedVelocityAndOrientation)
 				{
 					newSharedProperty.ObjectIndex |= unchecked((short)SharedProperties.SharedObjectValueSetMask.kCompressedOrientationAndVelocityInMask);

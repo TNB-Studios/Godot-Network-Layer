@@ -394,6 +394,9 @@ public unsafe class SharedProperties
 			else
 			{
 				particleEffect = buffer[offset];
+				// Map sentinels back: 255 = -1 (delta reset), 254 = -2 (stop effect)
+				if (particleEffect == 255) particleEffect = -1;
+				else if (particleEffect == 254) particleEffect = -2;
 				offset++;
 			}
 
@@ -403,7 +406,17 @@ public unsafe class SharedProperties
 				networkedNodeParticle.currentParticleEffectIndex = particleEffect;
 			}
 
-			Globals.worldManager_client.networkManager_client.ApplyParticleEffectToNode(targetNode, particleEffect);
+			// -1 is the server's delta-compression reset — ignore it.
+			// -2 is an explicit "stop this effect now" command.
+			// Positive indices fire the effect.
+			if (particleEffect >= 0)
+			{
+				Globals.worldManager_client.networkManager_client.ApplyParticleEffectToNode(targetNode, particleEffect);
+			}
+			else if (particleEffect == -2)
+			{
+				Globals.worldManager_client.networkManager_client.ApplyParticleEffectToNode(targetNode, -1);
+			}
 		}
 
 		// Blob data
@@ -712,12 +725,10 @@ public unsafe class SharedProperties
 		if (oldSharedProperties == null || ParticleEffect != oldSharedProperties.ParticleEffect)
 		{
 			bool sendParticleEffect = true;
-			if (oldSharedProperties == null)
+			// Skip sending -1 only on initial sync (no previous state) since there's nothing to stop
+			if (oldSharedProperties == null && ParticleEffect == -1)
 			{
-				if (ParticleEffect == -1)
-				{
-					sendParticleEffect = false;
-				}
+				sendParticleEffect = false;
 			}
 			if (sendParticleEffect)
 			{
@@ -729,7 +740,8 @@ public unsafe class SharedProperties
 				}
 				else
 				{
-					currentBuffer[currentBufferOffset] = (byte)ParticleEffect;
+					// Use sentinels since byte can't represent negative: 255 = -1 (delta reset), 254 = -2 (stop)
+					currentBuffer[currentBufferOffset] = ParticleEffect == -1 ? (byte)255 : ParticleEffect == -2 ? (byte)254 : (byte)ParticleEffect;
 					currentBufferOffset++;
 				}
 			}

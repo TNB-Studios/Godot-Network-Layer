@@ -154,6 +154,16 @@ public static class NetworkedNodeHelper
         }
     }
 
+    public static void ProcessParticleReset(INetworkedNode data)
+    {
+        if (data.activeParticleEffect != null && !GodotObject.IsInstanceValid(data.activeParticleEffect))
+        {
+            // Effect was QueueFree'd by the cleanup timer — clear the reference
+            data.activeParticleEffect = null;
+            data.currentParticleEffectIndex = -1;
+        }
+    }
+
     // --- Interpolation: called from ReadDataForObject when server values arrive ---
 
     public static void ApplyNetworkPosition(Node ownerNode, INetworkedNode data, Vector3 serverPosition)

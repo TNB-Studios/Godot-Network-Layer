@@ -608,9 +608,9 @@ public class NetworkManager_Client : NetworkManager_Common
 
                 // new precache all the list of sounds and models we need  - Note, have to do this here, because these may well be used by the objects beng loaded next
                 // TODO - add particle Effects and Animations to be loaded
-                LoadModelsFromNames();
-                LoadSoundsFromNames();
-                LoadParticleEffectsFromNames();             			
+                LoadModelsFromNames(LogShips);
+                LoadSoundsFromNames(LogSounds);
+                LoadParticleEffectsFromNames(LogEffects);             			
 				
 				// Read object count
                 Debug.Assert(currentOffset + sizeof(short) <= incomingBuffer.Length, "Buffer underflow reading initial object count");

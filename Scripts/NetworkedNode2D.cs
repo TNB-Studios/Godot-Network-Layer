@@ -16,6 +16,7 @@ public partial class NetworkedNode2D : Node2D, INetworkedNode
     public short currentModelIndex { get; set; } = -1;
     public short currentAnimationIndex { get; set; } = -1;
     public short currentParticleEffectIndex { get; set; } = -1;
+    public GpuParticles3D activeParticleEffect { get; set; } = null;
     public short attachedToObjectLookupIndex { get; set; } = -1;
     public byte[] networkedBlob { get; set; } = null;
     public bool CompressedVelocityAndOrientation { get; set; } = false;
@@ -64,5 +65,6 @@ public partial class NetworkedNode2D : Node2D, INetworkedNode
         }
 
         NetworkedNodeHelper.ProcessSoundReset(this);
+        NetworkedNodeHelper.ProcessParticleReset(this);
     }
 }

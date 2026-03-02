@@ -43,6 +43,11 @@ public class NetworkManager_Common
 
 	public HashedSlotArray IDToNetworkIDLookup;
 
+	// Logging tags — set by owning WorldManager. Empty string = no logging.
+	public string LogShips = "";
+	public string LogSounds = "";
+	public string LogEffects = "";
+
     protected static readonly string NETWORKED_GROUP_NAME = "networked";
 
     public NetworkManager_Common(Node rootSceneNode)
@@ -54,7 +59,7 @@ public class NetworkManager_Common
 	/// Loads all models from ModelNames into LoadedModels.
 	/// Call this after ModelNames has been populated.
 	/// </summary>
-	public void LoadModelsFromNames()
+	public void LoadModelsFromNames(string logTag = "")
 	{
 		LoadedModels = new List<PackedScene>(ModelNames.Count);
 
@@ -67,23 +72,25 @@ public class NetworkManager_Common
 				{
 					PackedScene scene = GD.Load<PackedScene>("res://" + modelName);
 					LoadedModels.Add(scene);
+					if (logTag != "") GD.Print(logTag + " Loaded model [" + index + "]: " + modelName + (scene != null ? " OK" : " FAILED"));
 				}
 				else
 				{
-					GD.Print("Cannot find model " + modelName);
+					if (logTag != "") GD.Print(logTag + " Empty model name at index [" + index + "]");
 					LoadedModels.Add(null);
 				}
 			}
 			catch { }
 			index++;
-		}		
+		}
+		if (logTag != "") GD.Print(logTag + " Total loaded models: " + LoadedModels.Count);
 	}
 
 	/// <summary>
 	/// Loads all sounds from SoundNames into LoadedSounds.
 	/// Call this after SoundNames has been populated.
 	/// </summary>
-	public void LoadSoundsFromNames()
+	public void LoadSoundsFromNames(string logTag = "")
 	{
         LoadedSounds = new List<AudioStream>(SoundNames.Count);
 
@@ -96,23 +103,25 @@ public class NetworkManager_Common
 				{
 					AudioStream sound = GD.Load<AudioStream>("res://" + soundName);
 					LoadedSounds.Add(sound);
+					if (logTag != "") GD.Print(logTag + " Loaded sound [" + index + "]: " + soundName + (sound != null ? " OK" : " FAILED"));
 				}
                 else
                 {
-                    GD.Print("Cannot sound model " + soundName);
+                    if (logTag != "") GD.Print(logTag + " Empty sound name at index [" + index + "]");
                     LoadedSounds.Add(null);
                 }
             }
             catch { }
             index++;
         }
+		if (logTag != "") GD.Print(logTag + " Total loaded sounds: " + LoadedSounds.Count);
 	}
 
 	/// <summary>
 	/// Loads all particle effects from ParticleEffectNames into LoadedParticleEffects.
 	/// Call this after ParticleEffectNames has been populated.
 	/// </summary>
-	public void LoadParticleEffectsFromNames()
+	public void LoadParticleEffectsFromNames(string logTag = "")
 	{
         LoadedParticleEffects = new List<PackedScene>(ParticleEffectNames.Count);
 
@@ -125,17 +134,18 @@ public class NetworkManager_Common
 				{
 					PackedScene scene = GD.Load<PackedScene>("res://" + particleEffect);
 					LoadedParticleEffects.Add(scene);
+					if (logTag != "") GD.Print(logTag + " Loaded effect [" + index + "]: " + particleEffect + (scene != null ? " OK" : " FAILED"));
                 }
                 else
                 {
-                    GD.Print("Cannot sound particle Effect " + particleEffect);
+                    if (logTag != "") GD.Print(logTag + " Empty effect name at index [" + index + "]");
                     LoadedParticleEffects.Add(null);
                 }
-
             }
             catch { }
             index++;
         }
+		if (logTag != "") GD.Print(logTag + " Total loaded effects: " + LoadedParticleEffects.Count);
     }
 
 	/// <summary>

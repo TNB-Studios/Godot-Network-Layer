@@ -18,6 +18,7 @@ public interface INetworkedNode
     short currentModelIndex { get; set; }
     short currentAnimationIndex { get; set; }
     short currentParticleEffectIndex { get; set; }
+    GpuParticles3D activeParticleEffect { get; set; }
     short attachedToObjectLookupIndex { get; set; }
 
     byte[] networkedBlob {get; set;}
